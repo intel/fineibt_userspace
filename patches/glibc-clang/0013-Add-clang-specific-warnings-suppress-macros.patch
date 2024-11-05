@@ -1,0 +1,59 @@
+From 5a30a64e0b2d35712f35821b8f23f0f38308ef07 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 12 Sep 2023 15:45:24 -0300
+Subject: [PATCH 013/142] Add clang specific warnings suppress macros
+
+Four new macros are added:
+
+  * DIAG_{PUSH,POP}_NEEDS_COMMENT_CLANG are similar to
+    DIAG_{PUSH,POP}_NEEDS_COMMENT, but enable clang specific pragmas to
+    handle warnings for options only supported by clang.
+
+  * DIAG_IGNORE_NEEDS_COMMENT_{CLANG,GCC} are similar to
+    DIAG_IGNORE_NEEDS_COMMENT, but enable the warning suppression only
+    for the referenced compiler.
+---
+ include/libc-diag.h | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/include/libc-diag.h b/include/libc-diag.h
+index 4b1c916756..7666a386f3 100644
+--- a/include/libc-diag.h
++++ b/include/libc-diag.h
+@@ -38,6 +38,16 @@
+ /* Pop diagnostic state.  */
+ #define DIAG_POP_NEEDS_COMMENT _Pragma ("GCC diagnostic pop")
+ 
++/* These macros are used to push/pop diagnostic states for warnings only
++   supported by clang.  */
++#ifdef __clang__
++# define DIAG_PUSH_NEEDS_COMMENT_CLANG _Pragma ("clang diagnostic push")
++# define DIAG_POP_NEEDS_COMMENT_CLANG _Pragma ("clang diagnostic pop")
++#else
++# define DIAG_PUSH_NEEDS_COMMENT_CLANG
++# define DIAG_POP_NEEDS_COMMENT_CLANG
++#endif
++
+ #define _DIAG_STR1(s) #s
+ #define _DIAG_STR(s) _DIAG_STR1(s)
+ 
+@@ -71,4 +81,16 @@
+ # define DIAG_IGNORE_Os_NEEDS_COMMENT(version, option)
+ #endif
+ 
++/* Similar to DIAG_IGNORE_NEEDS_COMMENT, these macros should be used
++   to suppress warning supported by the specific compiler.  */
++#ifndef __clang__
++# define DIAG_IGNORE_NEEDS_COMMENT_GCC(VERSION, WARNING) \
++  DIAG_IGNORE_NEEDS_COMMENT (VERSION, WARNING)
++# define DIAG_IGNORE_NEEDS_COMMENT_CLANG(version, option)
++#else
++# define DIAG_IGNORE_NEEDS_COMMENT_GCC(VERSION, WARNING)
++# define DIAG_IGNORE_NEEDS_COMMENT_CLANG(version, option) \
++  _Pragma (_DIAG_STR (clang diagnostic ignored option))
++#endif
++
+ #endif /* libc-diag.h */
+-- 
+2.34.1
+

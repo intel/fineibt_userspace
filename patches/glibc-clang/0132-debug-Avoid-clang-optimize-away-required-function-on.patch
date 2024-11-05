@@ -1,0 +1,28 @@
+From a29972e91b4ec18300af6db982308dcb11021128 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Wed, 17 Jan 2024 15:50:04 -0300
+Subject: [PATCH 132/142] debug: Avoid clang optimize away required function on
+ tst-ssp1.c
+
+---
+ debug/tst-ssp-1.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/debug/tst-ssp-1.c b/debug/tst-ssp-1.c
+index 27f10edc56..671e9a5007 100644
+--- a/debug/tst-ssp-1.c
++++ b/debug/tst-ssp-1.c
+@@ -22,6 +22,10 @@
+ 
+ static void
+ __attribute__ ((noinline)) __attribute_noclone__
++#ifdef __clang__
++/* Avoid clang optimize it away.  */
++__attribute__ ((optnone))
++#endif
+ test (char *foo)
+ {
+   int i;
+-- 
+2.34.1
+

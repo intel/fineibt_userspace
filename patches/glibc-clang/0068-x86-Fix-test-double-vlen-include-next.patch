@@ -1,0 +1,72 @@
+From 4685549462c3d0e646e8c919cd478773c97c155d Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 24 Mar 2022 13:14:30 -0300
+Subject: [PATCH 068/142] x86: Fix test-double-vlen include-next
+
+clang issues:
+
+  ../sysdeps/x86_64/fpu/test-double-vlen4.h:20:2: error: #include_next in
+  file found relative to primary source file or found by absolute path;
+  will search from start of include path
+  [-Werror,-Winclude-next-absolute-path]
+
+Instead of suppress the warning, it is simpler to just include the
+absolute path instead.
+---
+ sysdeps/x86_64/fpu/test-double-vlen4.h | 2 +-
+ sysdeps/x86_64/fpu/test-double-vlen8.h | 2 +-
+ sysdeps/x86_64/fpu/test-float-vlen16.h | 2 +-
+ sysdeps/x86_64/fpu/test-float-vlen8.h  | 2 +-
+ 4 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/sysdeps/x86_64/fpu/test-double-vlen4.h b/sysdeps/x86_64/fpu/test-double-vlen4.h
+index 2eaa33039f..6898f0cec6 100644
+--- a/sysdeps/x86_64/fpu/test-double-vlen4.h
++++ b/sysdeps/x86_64/fpu/test-double-vlen4.h
+@@ -16,6 +16,6 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
+-#include_next <test-double-vlen4.h>
++#include <math/test-double-vlen4.h>
+ 
+ #define REQUIRE_AVX
+diff --git a/sysdeps/x86_64/fpu/test-double-vlen8.h b/sysdeps/x86_64/fpu/test-double-vlen8.h
+index 9edd6b76c6..809400e4c9 100644
+--- a/sysdeps/x86_64/fpu/test-double-vlen8.h
++++ b/sysdeps/x86_64/fpu/test-double-vlen8.h
+@@ -16,6 +16,6 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
+-#include_next <test-double-vlen8.h>
++#include <math/test-double-vlen8.h>
+ 
+ #define REQUIRE_AVX512F
+diff --git a/sysdeps/x86_64/fpu/test-float-vlen16.h b/sysdeps/x86_64/fpu/test-float-vlen16.h
+index 59f8018d13..65388c97fa 100644
+--- a/sysdeps/x86_64/fpu/test-float-vlen16.h
++++ b/sysdeps/x86_64/fpu/test-float-vlen16.h
+@@ -16,6 +16,6 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
+-#include_next <test-float-vlen16.h>
++#include <math/test-float-vlen16.h>
+ 
+ #define REQUIRE_AVX512F
+diff --git a/sysdeps/x86_64/fpu/test-float-vlen8.h b/sysdeps/x86_64/fpu/test-float-vlen8.h
+index 11e35815c1..23fc492025 100644
+--- a/sysdeps/x86_64/fpu/test-float-vlen8.h
++++ b/sysdeps/x86_64/fpu/test-float-vlen8.h
+@@ -16,6 +16,6 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
+-#include_next <test-float-vlen8.h>
++#include <math/test-float-vlen8.h>
+ 
+ #define REQUIRE_AVX
+-- 
+2.34.1
+

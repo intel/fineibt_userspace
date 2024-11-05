@@ -1,0 +1,1124 @@
+From 62c2a234853701c7a4736b5a70051ee6bf7c34f9 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 24 Mar 2022 15:02:20 -0300
+Subject: [PATCH 072/142] And defines to __attribute__ (__noclone__) iff
+ compiler supports it.
+
+---
+ benchtests/bench-hash-funcs-kernel.h          |  4 ++--
+ benchtests/bench-hash-funcs.c                 |  2 +-
+ benchtests/bench-strchr.c                     |  4 ++--
+ debug/tst-backtrace.h                         |  2 +-
+ debug/tst-ssp-1.c                             |  2 +-
+ elf/tst-p_alignmod-base.c                     |  2 +-
+ gmon/tst-gmon.c                               |  8 +++++---
+ gmon/tst-mcount-overflow.c                    | 10 ++++++----
+ malloc/tst-malloc-thread-exit.c               |  2 +-
+ malloc/tst-malloc-thread-fail.c               |  2 +-
+ malloc/tst-mallocstate.c                      |  2 +-
+ misc/sys/cdefs.h                              |  7 +++++++
+ misc/tst-syscalls.c                           | 14 ++++++-------
+ nptl/tst-minstack-throw.cc                    |  8 ++++----
+ nptl/tst-thread-exit-clobber.cc               | 12 +++++------
+ nptl/tst-thread_local1.cc                     | 12 +++++------
+ stdlib/tst-makecontext-align.c                | 20 +++++++++----------
+ stdlib/tst-quick_exit.cc                      |  2 +-
+ stdlib/tst-setcontext10.c                     |  6 +++---
+ stdlib/tst-setcontext11.c                     |  2 +-
+ stdlib/tst-setcontext5.c                      |  4 ++--
+ stdlib/tst-setcontext8.c                      |  2 +-
+ stdlib/tst-setcontext9.c                      |  2 +-
+ stdlib/tst-swapcontext1.c                     |  8 ++++----
+ stdlib/tst-swapcontext2.c                     |  8 ++++----
+ stdlib/tst-thread-quick_exit.cc               |  2 +-
+ string/tst-xbzero-opt.c                       |  3 ++-
+ sysdeps/generic/tst-stack-align.h             |  2 +-
+ .../sysv/linux/x86_64/tst-cet-property-2.c    |  2 +-
+ .../sysv/linux/x86_64/tst-cet-setcontext-1.c  |  2 +-
+ .../unix/sysv/linux/x86_64/tst-cet-vfork-1.c  |  2 +-
+ sysdeps/x86/tst-ldbl-nonnormal-printf.c       |  2 +-
+ sysdeps/x86/tst-memchr-rtm.c                  |  4 ++--
+ sysdeps/x86/tst-memcmp-rtm.c                  |  4 ++--
+ sysdeps/x86/tst-memmove-rtm.c                 |  4 ++--
+ sysdeps/x86/tst-memrchr-rtm.c                 |  4 ++--
+ sysdeps/x86/tst-memset-rtm.c                  |  4 ++--
+ sysdeps/x86/tst-strchr-rtm.c                  |  4 ++--
+ sysdeps/x86/tst-strcmp-rtm.c                  |  4 ++--
+ sysdeps/x86/tst-strcpy-rtm.c                  |  4 ++--
+ sysdeps/x86/tst-strlen-rtm.c                  |  4 ++--
+ sysdeps/x86/tst-strncmp-rtm.c                 |  8 ++++----
+ sysdeps/x86/tst-strrchr-rtm.c                 |  4 ++--
+ sysdeps/x86_64/tst-rsi-strlen.c               |  2 +-
+ 44 files changed, 112 insertions(+), 100 deletions(-)
+
+diff --git a/benchtests/bench-hash-funcs-kernel.h b/benchtests/bench-hash-funcs-kernel.h
+index 7eaa3665b6..aee1f1cdc8 100644
+--- a/benchtests/bench-hash-funcs-kernel.h
++++ b/benchtests/bench-hash-funcs-kernel.h
+@@ -35,7 +35,7 @@
+ #define PRIMITIVE_CAT(x, y) x ## y
+ #define CAT(x, y) PRIMITIVE_CAT (x, y)
+ 
+-static double __attribute__ ((noinline, noclone))
++static double __attribute__ ((noinline)) __attribute_noclone__
+ CAT (do_one_test_kernel, POSTFIX) (const char *s, size_t len)
+ {
+ 
+@@ -58,7 +58,7 @@ CAT (do_one_test_kernel, POSTFIX) (const char *s, size_t len)
+   return (double) cur / (double) NFIXED_ITERS;
+ }
+ 
+-static double __attribute__ ((noinline, noclone))
++static double __attribute__ ((noinline)) __attribute_noclone__
+ CAT (do_rand_test_kernel, POSTFIX) (char const *bufs,
+ 				    unsigned int const *sizes)
+ {
+diff --git a/benchtests/bench-hash-funcs.c b/benchtests/bench-hash-funcs.c
+index 8dd88c9e39..ca199a7fae 100644
+--- a/benchtests/bench-hash-funcs.c
++++ b/benchtests/bench-hash-funcs.c
+@@ -67,7 +67,7 @@ do_one_test (json_ctx_t *json_ctx, size_t len)
+   json_element_object_end (json_ctx);
+ }
+ 
+-static void __attribute__ ((noinline, noclone))
++static void __attribute__ ((noinline)) __attribute_noclone__
+ do_rand_test (json_ctx_t *json_ctx)
+ {
+   size_t i, sz, offset;
+diff --git a/benchtests/bench-strchr.c b/benchtests/bench-strchr.c
+index eed6882085..5ef3a9d438 100644
+--- a/benchtests/bench-strchr.c
++++ b/benchtests/bench-strchr.c
+@@ -92,7 +92,7 @@ IMPL (generic_strchrnul, 0)
+    branch coming we want to test the case where a potential branch in
+    strchr can be used to skip a later mispredict because of the
+    relationship between the two branches. */
+-static void __attribute__ ((noinline, noclone))
++static void __attribute__ ((noinline)) __attribute_noclone__
+ do_one_rand_plus_branch_test (json_ctx_t *json_ctx, impl_t *impl,
+                               const CHAR *s, const CHAR *c)
+ {
+@@ -117,7 +117,7 @@ do_one_rand_plus_branch_test (json_ctx_t *json_ctx, impl_t *impl,
+   json_element_double (json_ctx, (double)cur / (double)iters);
+ }
+ 
+-static void __attribute__ ((noinline, noclone))
++static void __attribute__ ((noinline)) __attribute_noclone__
+ do_one_rand_test (json_ctx_t *json_ctx, impl_t *impl, const CHAR *s,
+                   const CHAR *c)
+ {
+diff --git a/debug/tst-backtrace.h b/debug/tst-backtrace.h
+index 53239dad59..5526cb2dc3 100644
+--- a/debug/tst-backtrace.h
++++ b/debug/tst-backtrace.h
+@@ -33,7 +33,7 @@ volatile int x;
+ 
+ /* Use this attribute to prevent inlining, so that all expected frames
+    are present.  */
+-#define NO_INLINE __attribute__ ((noinline, noclone, weak))
++#define NO_INLINE __attribute__ ((noinline, weak)) __attribute_noclone__
+ 
+ /* Look for a match in SYM from backtrace_symbols to NAME, a fragment
+    of a function name.  Ignore the filename before '(', but presume
+diff --git a/debug/tst-ssp-1.c b/debug/tst-ssp-1.c
+index a1e4fb0630..27f10edc56 100644
+--- a/debug/tst-ssp-1.c
++++ b/debug/tst-ssp-1.c
+@@ -21,7 +21,7 @@
+ #include <signal.h>
+ 
+ static void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ test (char *foo)
+ {
+   int i;
+diff --git a/elf/tst-p_alignmod-base.c b/elf/tst-p_alignmod-base.c
+index d6930b9f16..3f90212e07 100644
+--- a/elf/tst-p_alignmod-base.c
++++ b/elf/tst-p_alignmod-base.c
+@@ -26,7 +26,7 @@
+ int foo __attribute__ ((aligned (ALIGN))) = 1;
+ 
+ bool
+-__attribute__ ((weak, noclone, noinline))
++__attribute__ ((weak, noinline)) __attribute_noclone__
+ is_aligned_p (void *p, int align)
+ {
+   return (((uintptr_t) p) & (align - 1)) == 0;
+diff --git a/gmon/tst-gmon.c b/gmon/tst-gmon.c
+index 9de4e7f85f..e379cced86 100644
+--- a/gmon/tst-gmon.c
++++ b/gmon/tst-gmon.c
+@@ -16,15 +16,17 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
++#include <sys/cdefs.h>
++
+ /* This program does not use the test harness because we want tight
+    control over the call graph.  */
+ 
+-__attribute__ ((noinline, noclone, weak)) void
++__attribute__ ((noinline, weak)) __attribute_noclone__ void
+ f1 (void)
+ {
+ }
+ 
+-__attribute__ ((noinline, noclone, weak)) void
++__attribute__ ((noinline, weak)) __attribute_noclone__ void
+ f2 (void)
+ {
+   f1 ();
+@@ -32,7 +34,7 @@ f2 (void)
+   asm volatile ("");
+ }
+ 
+-__attribute__ ((noinline, noclone, weak)) void
++__attribute__ ((noinline, weak)) __attribute_noclone__ void
+ f3 (int count)
+ {
+   for (int i = 0; i < count; ++i)
+diff --git a/gmon/tst-mcount-overflow.c b/gmon/tst-mcount-overflow.c
+index 0e60f7e2e6..5fa98f3b38 100644
+--- a/gmon/tst-mcount-overflow.c
++++ b/gmon/tst-mcount-overflow.c
+@@ -16,6 +16,8 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
++#include <sys/cdefs.h>
++
+ /* Program with sufficiently complex, yet pointless, call graph
+    that it will trigger an mcount overflow, when you set the
+    minarcs/maxarcs tunables to very low values. */
+@@ -31,12 +33,12 @@
+ 
+ /* Defines 16 leaf functions named f1_0 to f1_15 */
+ #define REP(n) \
+-  __attribute__ ((noinline, noclone, weak)) void f1_##n (void) {};
++  __attribute__ ((noinline, weak)) __attribute_noclone__ void f1_##n (void) {};
+ REPS
+ #undef REP
+ 
+ /* Calls all 16 leaf functions f1_* in succession */
+-__attribute__ ((noinline, noclone, weak)) void
++__attribute__ ((noinline, weak)) __attribute_noclone__ void
+ f2 (void)
+ {
+ # define REP(n) f1_##n();
+@@ -47,12 +49,12 @@ f2 (void)
+ 
+ /* Defines 16 functions named f2_0 to f2_15, which all just call f2 */
+ #define REP(n) \
+-  __attribute__ ((noinline, noclone, weak)) void \
++  __attribute__ ((noinline, weak)) __attribute_noclone__ void \
+   f2_##n (void) { f2(); PREVENT_TAIL_CALL; };
+ REPS
+ #undef REP
+ 
+-__attribute__ ((noinline, noclone, weak)) void
++__attribute__ ((noinline, weak)) __attribute_noclone__ void
+ f3 (int count)
+ {
+   for (int i = 0; i < count; ++i)
+diff --git a/malloc/tst-malloc-thread-exit.c b/malloc/tst-malloc-thread-exit.c
+index aec3897087..d21191a53d 100644
+--- a/malloc/tst-malloc-thread-exit.c
++++ b/malloc/tst-malloc-thread-exit.c
+@@ -42,7 +42,7 @@ static int inner_thread_count = 4;
+ static size_t malloc_size = 32;
+ 
+ static void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ unoptimized_free (void *ptr)
+ {
+   free (ptr);
+diff --git a/malloc/tst-malloc-thread-fail.c b/malloc/tst-malloc-thread-fail.c
+index f698871876..d5bc3433e7 100644
+--- a/malloc/tst-malloc-thread-fail.c
++++ b/malloc/tst-malloc-thread-fail.c
+@@ -33,7 +33,7 @@
+ 
+ /* Wrapper for calloc with an optimization barrier.  */
+ static void *
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ allocate_zeroed (size_t a, size_t b)
+ {
+   return calloc (a, b);
+diff --git a/malloc/tst-mallocstate.c b/malloc/tst-mallocstate.c
+index f72e1a1b28..25e3e31521 100644
+--- a/malloc/tst-mallocstate.c
++++ b/malloc/tst-mallocstate.c
+@@ -366,7 +366,7 @@ full_heap_check (void)
+ }
+ 
+ /* Used as an optimization barrier to force a heap allocation.  */
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static void
+ my_free (void *ptr)
+ {
+diff --git a/misc/sys/cdefs.h b/misc/sys/cdefs.h
+index 6b03417453..7930f2f5b2 100644
+--- a/misc/sys/cdefs.h
++++ b/misc/sys/cdefs.h
+@@ -874,4 +874,11 @@ _Static_assert (0, "IEEE 128-bits long double requires redirection on this platf
+ # define __attribute_returns_twice__ /* Ignore.  */
+ #endif
+ 
++/*  Prevents a function from being considered for cloning.  */
++#if __GNUC_PREREQ (4, 5) || __glibc_has_attribute (__noclone__)
++# define __attribute_noclone__ __attribute__ ((__noclone__))
++#else
++# define __attribute_noclone__ /* Ignore.  */
++#endif
++
+ #endif	 /* sys/cdefs.h */
+diff --git a/misc/tst-syscalls.c b/misc/tst-syscalls.c
+index d060b125c9..4418b1867a 100644
+--- a/misc/tst-syscalls.c
++++ b/misc/tst-syscalls.c
+@@ -37,7 +37,7 @@ struct Array
+ 
+ static int error_count;
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ struct Array
+ allocate (size_t bytes)
+ {
+@@ -52,7 +52,7 @@ allocate (size_t bytes)
+   return __extension__ (struct Array) {bytes, p};
+ }
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ void
+ deallocate (struct Array b)
+ {
+@@ -66,7 +66,7 @@ deallocate (struct Array b)
+     }
+ }
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ void *
+ do_mmap (void *addr, size_t length)
+ {
+@@ -74,7 +74,7 @@ do_mmap (void *addr, size_t length)
+ 	       MAP_PRIVATE | MAP_ANON, -1, 0);
+ }
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ void *
+ reallocate (struct Array b)
+ {
+@@ -86,7 +86,7 @@ reallocate (struct Array b)
+   return NULL;
+ }
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ void
+ protect (struct Array b)
+ {
+@@ -104,7 +104,7 @@ protect (struct Array b)
+     }
+ }
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ ssize_t
+ do_read (int fd, void *ptr, struct Array b)
+ {
+@@ -116,7 +116,7 @@ do_read (int fd, void *ptr, struct Array b)
+   return 0;
+ }
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ ssize_t
+ do_write (int fd, void *ptr, struct Array b)
+ {
+diff --git a/nptl/tst-minstack-throw.cc b/nptl/tst-minstack-throw.cc
+index b729091ec4..34b4bde825 100644
+--- a/nptl/tst-minstack-throw.cc
++++ b/nptl/tst-minstack-throw.cc
+@@ -24,7 +24,7 @@
+ #include <support/xthread.h>
+ 
+ /* Throw a std::runtime_exception.  */
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ do_throw_exception ()
+ {
+@@ -38,17 +38,17 @@ struct class_with_destructor
+   ~class_with_destructor ();
+ };
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ class_with_destructor::class_with_destructor ()
+ {
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ class_with_destructor::~class_with_destructor ()
+ {
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ function_with_destructed_object ()
+ {
+diff --git a/nptl/tst-thread-exit-clobber.cc b/nptl/tst-thread-exit-clobber.cc
+index b3b6989268..28cd769198 100644
+--- a/nptl/tst-thread-exit-clobber.cc
++++ b/nptl/tst-thread-exit-clobber.cc
+@@ -73,7 +73,7 @@ enum { no_check = -1 };
+ 
+ /* Check that VALUE is the magic value for INDEX, behind a compiler
+    barrier.  */
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_magic (int index, unsigned int value)
+ {
+@@ -103,7 +103,7 @@ check_magic (int index, unsigned int value)
+ 
+ /* Check that VALUE is the magic value for INDEX, behind a compiler
+    barrier.  Double variant.  */
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_magic (int index, double value)
+ {
+@@ -153,7 +153,7 @@ struct checker
+    call_pthread_exit are used to call pthread_exit indirectly, with
+    the intent of clobbering the register values.  */
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ call_pthread_exit_0 (const values<unsigned int> *pvalues)
+ {
+@@ -166,7 +166,7 @@ call_pthread_exit_0 (const values<unsigned int> *pvalues)
+   pthread_exit (NULL);
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ call_pthread_exit_1 (const values<double> *pvalues)
+ {
+@@ -180,7 +180,7 @@ call_pthread_exit_1 (const values<double> *pvalues)
+   call_pthread_exit_0 (&other_values);
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ call_pthread_exit ()
+ {
+@@ -192,7 +192,7 @@ call_pthread_exit ()
+    pthread_exit.  If Nested is true, call pthread_exit indirectly via
+    call_pthread_exit.  */
+ template <class T, bool Nested>
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void *
+ threadfunc (void *closure)
+ {
+diff --git a/nptl/tst-thread_local1.cc b/nptl/tst-thread_local1.cc
+index 270520528c..c6d5ec2e66 100644
+--- a/nptl/tst-thread_local1.cc
++++ b/nptl/tst-thread_local1.cc
+@@ -53,27 +53,27 @@ to_string (const counter &c)
+ template <counter *Counter>
+ struct counting
+ {
+-  counting () __attribute__ ((noinline, noclone));
+-  ~counting () __attribute__ ((noinline, noclone));
+-  void operation () __attribute__ ((noinline, noclone));
++  counting () __attribute__ ((noinline)) __attribute_noclone__;
++  ~counting () __attribute__ ((noinline)) __attribute_noclone__;
++  void operation () __attribute__ ((noinline)) __attribute_noclone__;
+ };
+ 
+ template<counter *Counter>
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ counting<Counter>::counting ()
+ {
+   ++Counter->constructed;
+ }
+ 
+ template<counter *Counter>
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ counting<Counter>::~counting ()
+ {
+   ++Counter->destructed;
+ }
+ 
+ template<counter *Counter>
+-void __attribute__ ((noinline, noclone))
++void __attribute__ ((noinline)) __attribute_noclone__
+ counting<Counter>::operation ()
+ {
+   // Optimization barrier.
+diff --git a/stdlib/tst-makecontext-align.c b/stdlib/tst-makecontext-align.c
+index e54b3e1ff2..b3187a5aa8 100644
+--- a/stdlib/tst-makecontext-align.c
++++ b/stdlib/tst-makecontext-align.c
+@@ -30,7 +30,7 @@ static const char *context;
+ 
+ /* Check that ADDRESS is aligned to ALIGNMENT bytes, behind a compiler
+    barrier.  */
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align (void *address, size_t alignment)
+ {
+@@ -45,7 +45,7 @@ check_align (void *address, size_t alignment)
+ 
+ /* Various alignment checking functions.  */
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_int (void)
+ {
+@@ -53,7 +53,7 @@ check_align_int (void)
+   check_align (&a, __alignof__ (a));
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_long (void)
+ {
+@@ -61,7 +61,7 @@ check_align_long (void)
+   check_align (&a, __alignof__ (a));
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_long_long (void)
+ {
+@@ -69,7 +69,7 @@ check_align_long_long (void)
+   check_align (&a, __alignof__ (a));
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_double (void)
+ {
+@@ -77,7 +77,7 @@ check_align_double (void)
+   check_align (&a, __alignof__ (a));
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_4 (void)
+ {
+@@ -85,7 +85,7 @@ check_align_4 (void)
+   check_align (&a, 4);
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_8 (void)
+ {
+@@ -93,7 +93,7 @@ check_align_8 (void)
+   check_align (&a, 8);
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_16 (void)
+ {
+@@ -105,7 +105,7 @@ check_align_16 (void)
+   check_align (&a, 16);
+ }
+ 
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_align_32 (void)
+ {
+@@ -120,7 +120,7 @@ check_align_32 (void)
+ }
+ 
+ /* Call all the alignment checking functions.  */
+-__attribute__ ((noinline, noclone, weak))
++__attribute__ ((noinline, weak)) __attribute_noclone__
+ void
+ check_alignments (void)
+ {
+diff --git a/stdlib/tst-quick_exit.cc b/stdlib/tst-quick_exit.cc
+index 4331d80383..22789fe084 100644
+--- a/stdlib/tst-quick_exit.cc
++++ b/stdlib/tst-quick_exit.cc
+@@ -26,7 +26,7 @@ struct A
+ thread_local A a;
+ 
+ void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ optimization_barrier (A &)
+ {
+ }
+diff --git a/stdlib/tst-setcontext10.c b/stdlib/tst-setcontext10.c
+index 7267f5efe3..65a7e53f0a 100644
+--- a/stdlib/tst-setcontext10.c
++++ b/stdlib/tst-setcontext10.c
+@@ -37,7 +37,7 @@ static ucontext_t ctx;
+ static void f2 (void);
+ 
+ static void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ f1 (void)
+ {
+   printf ("start f1\n");
+@@ -45,7 +45,7 @@ f1 (void)
+ }
+ 
+ static void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ f2 (void)
+ {
+   printf ("start f2\n");
+@@ -64,7 +64,7 @@ f3 (void)
+ }
+ 
+ static int
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ do_test_1 (void)
+ {
+   char st1[32768];
+diff --git a/stdlib/tst-setcontext11.c b/stdlib/tst-setcontext11.c
+index 1883c44b76..c768782b86 100644
+--- a/stdlib/tst-setcontext11.c
++++ b/stdlib/tst-setcontext11.c
+@@ -54,7 +54,7 @@ f1 (int a0, int a1, int a2, int a3)
+ }
+ 
+ static void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ call_longjmp (void)
+ {
+   longjmp_called = 1;
+diff --git a/stdlib/tst-setcontext5.c b/stdlib/tst-setcontext5.c
+index 9b29907a13..42e87e2185 100644
+--- a/stdlib/tst-setcontext5.c
++++ b/stdlib/tst-setcontext5.c
+@@ -27,7 +27,7 @@ static volatile int done;
+ static void f2 (void);
+ 
+ static void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ f1 (void)
+ {
+   printf ("start f1\n");
+@@ -35,7 +35,7 @@ f1 (void)
+ }
+ 
+ static void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ f2 (void)
+ {
+   printf ("start f2\n");
+diff --git a/stdlib/tst-setcontext8.c b/stdlib/tst-setcontext8.c
+index cdcf5eb871..d02cade70c 100644
+--- a/stdlib/tst-setcontext8.c
++++ b/stdlib/tst-setcontext8.c
+@@ -26,7 +26,7 @@ static ucontext_t ctx[3];
+ static atomic_int done;
+ 
+ static void
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ f2 (void)
+ {
+   printf ("start f2\n");
+diff --git a/stdlib/tst-setcontext9.c b/stdlib/tst-setcontext9.c
+index 91b6255138..579d45419a 100644
+--- a/stdlib/tst-setcontext9.c
++++ b/stdlib/tst-setcontext9.c
+@@ -26,7 +26,7 @@ static ucontext_t ctx[5];
+ static atomic_int done;
+ 
+ static void
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ f2 (void)
+ {
+   done++;
+diff --git a/stdlib/tst-swapcontext1.c b/stdlib/tst-swapcontext1.c
+index c96b8a27a8..e10d76fe4f 100644
+--- a/stdlib/tst-swapcontext1.c
++++ b/stdlib/tst-swapcontext1.c
+@@ -29,7 +29,7 @@ const char *fmt2 = "\e[34m";
+ #define handle_error(msg) \
+   do { perror(msg); exit(EXIT_FAILURE); } while (0)
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func4(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+ {
+@@ -39,7 +39,7 @@ func4(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+   printf("      %sfunc4: returning\e[0m\n", fmt);
+ }
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func3(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+ {
+@@ -48,7 +48,7 @@ func3(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+   printf("    %sfunc3: returning\e[0m\n", fmt);
+ }
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func1(void)
+ {
+@@ -59,7 +59,7 @@ func1(void)
+     }
+ }
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func2(void)
+ {
+diff --git a/stdlib/tst-swapcontext2.c b/stdlib/tst-swapcontext2.c
+index f679755649..9c7440ff11 100644
+--- a/stdlib/tst-swapcontext2.c
++++ b/stdlib/tst-swapcontext2.c
+@@ -32,7 +32,7 @@ static jmp_buf jmpbuf;
+ #define handle_error(msg) \
+   do { perror(msg); exit(EXIT_FAILURE); } while (0)
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func4(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+ {
+@@ -42,7 +42,7 @@ func4(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+   printf("      %sfunc4: returning\e[0m\n", fmt);
+ }
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func3(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+ {
+@@ -51,7 +51,7 @@ func3(ucontext_t *uocp, ucontext_t *ucp, const char *str, const char *fmt)
+   printf("    %sfunc3: returning\e[0m\n", fmt);
+ }
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func1(void)
+ {
+@@ -67,7 +67,7 @@ func1(void)
+     }
+ }
+ 
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ static void
+ func2(void)
+ {
+diff --git a/stdlib/tst-thread-quick_exit.cc b/stdlib/tst-thread-quick_exit.cc
+index dadccee334..a4dc03d661 100644
+--- a/stdlib/tst-thread-quick_exit.cc
++++ b/stdlib/tst-thread-quick_exit.cc
+@@ -30,7 +30,7 @@ thread_local A a1;
+ thread_local A a2;
+ 
+ void
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ optimization_barrier (A &)
+ {
+ }
+diff --git a/string/tst-xbzero-opt.c b/string/tst-xbzero-opt.c
+index 2392eaa2c1..954fc61f89 100644
+--- a/string/tst-xbzero-opt.c
++++ b/string/tst-xbzero-opt.c
+@@ -97,7 +97,8 @@ static const unsigned char test_pattern[16] =
+ 
+ static ucontext_t uc_main, uc_co;
+ 
+-static __attribute__ ((noinline, noclone)) int
++static __attribute__ ((noinline)) __attribute_noclone__
++int
+ use_test_buffer (unsigned char *buf)
+ {
+   unsigned int sum = 0;
+diff --git a/sysdeps/generic/tst-stack-align.h b/sysdeps/generic/tst-stack-align.h
+index 12473e32b8..5b622f5a3f 100644
+--- a/sysdeps/generic/tst-stack-align.h
++++ b/sysdeps/generic/tst-stack-align.h
+@@ -20,7 +20,7 @@
+ #include <stdint.h>
+ 
+ int
+-__attribute__ ((weak, noclone, noinline))
++__attribute__ ((weak, noinline)) __attribute_noclone__
+ is_aligned (void *p, int align)
+ {
+   return (((uintptr_t) p) & (align - 1)) != 0;
+diff --git a/sysdeps/unix/sysv/linux/x86_64/tst-cet-property-2.c b/sysdeps/unix/sysv/linux/x86_64/tst-cet-property-2.c
+index 5274a09509..a72ace740a 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/tst-cet-property-2.c
++++ b/sysdeps/unix/sysv/linux/x86_64/tst-cet-property-2.c
+@@ -25,7 +25,7 @@
+ extern void bar (void);
+ 
+ void
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ test (void (*func_p) (void))
+ {
+   func_p ();
+diff --git a/sysdeps/unix/sysv/linux/x86_64/tst-cet-setcontext-1.c b/sysdeps/unix/sysv/linux/x86_64/tst-cet-setcontext-1.c
+index 388931f5f3..c0289dc701 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/tst-cet-setcontext-1.c
++++ b/sysdeps/unix/sysv/linux/x86_64/tst-cet-setcontext-1.c
+@@ -30,7 +30,7 @@ static ucontext_t ctx[5];
+ static atomic_int done;
+ 
+ static void
+-__attribute__((noinline, noclone))
++__attribute__((noinline)) __attribute_noclone__
+ f2 (void)
+ {
+   printf ("start f2\n");
+diff --git a/sysdeps/unix/sysv/linux/x86_64/tst-cet-vfork-1.c b/sysdeps/unix/sysv/linux/x86_64/tst-cet-vfork-1.c
+index 56d77530ae..3e0061f605 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/tst-cet-vfork-1.c
++++ b/sysdeps/unix/sysv/linux/x86_64/tst-cet-vfork-1.c
+@@ -25,7 +25,7 @@
+ #include <x86intrin.h>
+ #include <support/test-driver.h>
+ 
+-__attribute__ ((noclone, noinline))
++__attribute__ ((noinline)) __attribute_noclone__
+ static void
+ do_test_1 (void)
+ {
+diff --git a/sysdeps/x86/tst-ldbl-nonnormal-printf.c b/sysdeps/x86/tst-ldbl-nonnormal-printf.c
+index 3a60750de4..581c9c1fc4 100644
+--- a/sysdeps/x86/tst-ldbl-nonnormal-printf.c
++++ b/sysdeps/x86/tst-ldbl-nonnormal-printf.c
+@@ -23,7 +23,7 @@
+ 
+ /* Fill the stack with non-zero values.  This makes a crash in
+    snprintf more likely.  */
+-static void __attribute__ ((noinline, noclone))
++static void __attribute__ ((noinline)) __attribute_noclone__
+ fill_stack (void)
+ {
+   char buffer[65536];
+diff --git a/sysdeps/x86/tst-memchr-rtm.c b/sysdeps/x86/tst-memchr-rtm.c
+index 7dc0718b7c..fb57bc115a 100644
+--- a/sysdeps/x86/tst-memchr-rtm.c
++++ b/sysdeps/x86/tst-memchr-rtm.c
+@@ -22,7 +22,7 @@
+ #define STRING_SIZE 1024
+ char string1[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -36,7 +36,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-memcmp-rtm.c b/sysdeps/x86/tst-memcmp-rtm.c
+index 124eb17aed..24df5ed79a 100644
+--- a/sysdeps/x86/tst-memcmp-rtm.c
++++ b/sysdeps/x86/tst-memcmp-rtm.c
+@@ -23,7 +23,7 @@
+ char string1[STRING_SIZE];
+ char string2[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -35,7 +35,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-memmove-rtm.c b/sysdeps/x86/tst-memmove-rtm.c
+index dfb5533784..8ff1940109 100644
+--- a/sysdeps/x86/tst-memmove-rtm.c
++++ b/sysdeps/x86/tst-memmove-rtm.c
+@@ -23,7 +23,7 @@
+ char string1[STRING_SIZE];
+ char string2[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -35,7 +35,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-memrchr-rtm.c b/sysdeps/x86/tst-memrchr-rtm.c
+index 48512de7f4..13ed0aed45 100644
+--- a/sysdeps/x86/tst-memrchr-rtm.c
++++ b/sysdeps/x86/tst-memrchr-rtm.c
+@@ -22,7 +22,7 @@
+ #define STRING_SIZE 1024
+ char string1[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -36,7 +36,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-memset-rtm.c b/sysdeps/x86/tst-memset-rtm.c
+index 60e714c757..3eb6388b74 100644
+--- a/sysdeps/x86/tst-memset-rtm.c
++++ b/sysdeps/x86/tst-memset-rtm.c
+@@ -22,7 +22,7 @@
+ #define STRING_SIZE 1024
+ char string1[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -30,7 +30,7 @@ prepare (void)
+   return EXIT_SUCCESS;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-strchr-rtm.c b/sysdeps/x86/tst-strchr-rtm.c
+index 8294cc5118..e9689f0f7c 100644
+--- a/sysdeps/x86/tst-strchr-rtm.c
++++ b/sysdeps/x86/tst-strchr-rtm.c
+@@ -22,7 +22,7 @@
+ #define STRING_SIZE 1024
+ char string1[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -36,7 +36,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-strcmp-rtm.c b/sysdeps/x86/tst-strcmp-rtm.c
+index c2274a5d3e..8d1453caa5 100644
+--- a/sysdeps/x86/tst-strcmp-rtm.c
++++ b/sysdeps/x86/tst-strcmp-rtm.c
+@@ -40,7 +40,7 @@
+ CHAR string1[STRING_SIZE];
+ CHAR string2[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -52,7 +52,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-strcpy-rtm.c b/sysdeps/x86/tst-strcpy-rtm.c
+index 139f52004e..cb5c340448 100644
+--- a/sysdeps/x86/tst-strcpy-rtm.c
++++ b/sysdeps/x86/tst-strcpy-rtm.c
+@@ -23,7 +23,7 @@
+ char string1[STRING_SIZE];
+ char string2[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -35,7 +35,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-strlen-rtm.c b/sysdeps/x86/tst-strlen-rtm.c
+index 5b083f29dc..278cf27c8c 100644
+--- a/sysdeps/x86/tst-strlen-rtm.c
++++ b/sysdeps/x86/tst-strlen-rtm.c
+@@ -22,7 +22,7 @@
+ #define STRING_SIZE 1024
+ char string1[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -35,7 +35,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86/tst-strncmp-rtm.c b/sysdeps/x86/tst-strncmp-rtm.c
+index ebc8837ad1..3529431527 100644
+--- a/sysdeps/x86/tst-strncmp-rtm.c
++++ b/sysdeps/x86/tst-strncmp-rtm.c
+@@ -40,7 +40,7 @@
+ CHAR string1[STRING_SIZE];
+ CHAR string2[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -52,7 +52,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+@@ -62,7 +62,7 @@ function (void)
+     return 1;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function_overflow (void)
+ {
+@@ -72,7 +72,7 @@ function_overflow (void)
+     return 1;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function_overflow2 (void)
+ {
+diff --git a/sysdeps/x86/tst-strrchr-rtm.c b/sysdeps/x86/tst-strrchr-rtm.c
+index 487d2071d4..35f328e294 100644
+--- a/sysdeps/x86/tst-strrchr-rtm.c
++++ b/sysdeps/x86/tst-strrchr-rtm.c
+@@ -22,7 +22,7 @@
+ #define STRING_SIZE 1024
+ char string1[STRING_SIZE];
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ prepare (void)
+ {
+@@ -35,7 +35,7 @@ prepare (void)
+     return EXIT_FAILURE;
+ }
+ 
+-__attribute__ ((noinline, noclone))
++__attribute__ ((noinline)) __attribute_noclone__
+ static int
+ function (void)
+ {
+diff --git a/sysdeps/x86_64/tst-rsi-strlen.c b/sysdeps/x86_64/tst-rsi-strlen.c
+index 2c424ffe94..b367e75177 100644
+--- a/sysdeps/x86_64/tst-rsi-strlen.c
++++ b/sysdeps/x86_64/tst-rsi-strlen.c
+@@ -44,7 +44,7 @@ typedef struct
+ } parameter_t;
+ 
+ size_t
+-__attribute__ ((weak, noinline, noclone))
++__attribute__ ((weak, noinline)) __attribute_noclone__
+ do_strlen (parameter_t *a, int zero, const CHAR *str)
+ {
+   return CALL (a, str);
+-- 
+2.34.1
+

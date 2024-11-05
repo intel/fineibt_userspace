@@ -1,0 +1,47 @@
+From 832420f131d6a2dc043ce028ec28fc16b8c1aa81 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 24 Mar 2022 16:17:59 -0300
+Subject: [PATCH 081/142] Handle pragma GCC optimize for clang
+
+---
+ libio/tst-bz24051.c | 6 +++++-
+ libio/tst-bz24153.c | 6 +++++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/libio/tst-bz24051.c b/libio/tst-bz24051.c
+index a9903f20a3..2d32aae74a 100644
+--- a/libio/tst-bz24051.c
++++ b/libio/tst-bz24051.c
+@@ -19,7 +19,11 @@
+ 
+ /* Prevent putchar -> _IO_putc inline expansion.  */
+ #define __NO_INLINE__
+-#pragma GCC optimize("O0")
++#ifdef __clang__
++# pragma clang optimize off
++#else
++# pragma GCC optimize("O0")
++#endif
+ 
+ #include <stdio.h>
+ #include <string.h>
+diff --git a/libio/tst-bz24153.c b/libio/tst-bz24153.c
+index 023f07ca20..c379876fcc 100644
+--- a/libio/tst-bz24153.c
++++ b/libio/tst-bz24153.c
+@@ -18,7 +18,11 @@
+ 
+ /* Prevent getchar -> getc inline expansion.  */
+ #define __NO_INLINE__
+-#pragma GCC optimize ("O0")
++#ifdef __clang__
++# pragma clang optimize off
++#else
++# pragma GCC optimize("O0")
++#endif
+ 
+ #include <stdarg.h>
+ #include <stdio.h>
+-- 
+2.34.1
+

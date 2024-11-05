@@ -1,0 +1,90 @@
+From 5ca2ccf69a403bcf6a2f218adeda552daaaaaf7c Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Fri, 28 Jul 2023 09:34:03 -0300
+Subject: [PATCH 124/142] i386: Disable some tests on clang
+
+clang generated R_I386_PC32 instead of R_386_PLT32 for static
+ifoo calls, which triggers an ld issues where it can not link
+non-PIC and PIC objects.  This seems to be a clang bug.
+---
+ elf/ifuncmain9.c              | 5 +++++
+ sysdeps/x86/tst-ifunc-isa-1.c | 5 +++++
+ sysdeps/x86/tst-ifunc-isa-2.c | 4 ++++
+ 3 files changed, 14 insertions(+)
+
+diff --git a/elf/ifuncmain9.c b/elf/ifuncmain9.c
+index a13020dc6d..ed9c5a5d86 100644
+--- a/elf/ifuncmain9.c
++++ b/elf/ifuncmain9.c
+@@ -23,6 +23,7 @@
+ # include <stdbool.h>
+ # include <stdio.h>
+ # include <libc-diag.h>
++# include <support/test-driver.h>
+ 
+ /* Do not use the test framework, so that the process setup is not
+    disturbed.  */
+@@ -57,6 +58,9 @@ DIAG_POP_NEEDS_COMMENT_CLANG;
+ int
+ main (void)
+ {
++#if defined __clang__ && defined __i386__
++  return EXIT_UNSUPPORTED;
++#else
+   bool errors = false;
+ 
+   if (implementation_called != 0)
+@@ -93,4 +97,5 @@ main (void)
+     }
+ 
+   return errors;
++#endif
+ }
+diff --git a/sysdeps/x86/tst-ifunc-isa-1.c b/sysdeps/x86/tst-ifunc-isa-1.c
+index 44726576f1..276efc0572 100644
+--- a/sysdeps/x86/tst-ifunc-isa-1.c
++++ b/sysdeps/x86/tst-ifunc-isa-1.c
+@@ -17,14 +17,19 @@
+    <https://www.gnu.org/licenses/>.  */
+ 
+ #include <stdlib.h>
++#include <support/test-driver.h>
+ #include "tst-ifunc-isa.h"
+ 
+ static int
+ do_test (void)
+ {
++#if defined __clang__ && defined __i386__
++  return EXIT_UNSUPPORTED;
++#else
+   enum isa value = foo ();
+   enum isa expected = get_isa ();
+   return value == expected ? EXIT_SUCCESS : EXIT_FAILURE;
++#endif
+ }
+ 
+ #include <support/test-driver.c>
+diff --git a/sysdeps/x86/tst-ifunc-isa-2.c b/sysdeps/x86/tst-ifunc-isa-2.c
+index 156c649807..130169b614 100644
+--- a/sysdeps/x86/tst-ifunc-isa-2.c
++++ b/sysdeps/x86/tst-ifunc-isa-2.c
+@@ -23,12 +23,16 @@
+ static int
+ do_test (void)
+ {
++#if defined __clang__ && defined __i386__
++  return EXIT_UNSUPPORTED;
++#else
+   /* CPU must support SSE2.  */
+   if (!__builtin_cpu_supports ("sse2"))
+     return EXIT_UNSUPPORTED;
+   enum isa value = foo ();
+   /* All ISAs, but SSE2, are disabled by tunables.  */
+   return value == sse2 ? EXIT_SUCCESS : EXIT_FAILURE;
++#endif
+ }
+ 
+ #include <support/test-driver.c>
+-- 
+2.34.1
+

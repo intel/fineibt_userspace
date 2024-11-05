@@ -1,0 +1,40 @@
+From 8135781ced0959951eacde8d5ab184fafb46ca6a Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 24 Mar 2022 11:08:44 -0300
+Subject: [PATCH 065/142] math: Fix clang warnings on bug-tgmath1.c
+
+The type generic fabs expansion issues the floating point absolute with
+the wrong argument type (for instance cabs with floating point or fabs
+with a complex type) and clang warns that implicit conversion might
+incur in unexpected behavior.
+---
+ math/bug-tgmath1.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/math/bug-tgmath1.c b/math/bug-tgmath1.c
+index 16db9d17a1..1c97df0a40 100644
+--- a/math/bug-tgmath1.c
++++ b/math/bug-tgmath1.c
+@@ -1,5 +1,6 @@
+ #include <stdio.h>
+ #include <tgmath.h>
++#include <libc-diag.h>
+ 
+ 
+ int
+@@ -29,6 +30,12 @@ main (void)
+   TEST (cimag (1.0f), sizeof (float));
+   TEST (cimag (1.0f + 1.0fi), sizeof (float));
+ 
++  /* The type generic fabs expansion issues the floating point absolute with
++     the wrong argument type (for instance cabs with floating point or fabs
++     with a complex type) and clang warns that implicit conversion might
++     incur in unexpected behavior.  */
++  DIAG_PUSH_NEEDS_COMMENT_CLANG;
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wabsolute-value");
+   TEST (fabs (1.0), sizeof (double));
+   TEST (fabs (1.0 + 1.0i), sizeof (double));
+   TEST (fabs (1.0l), sizeof (long double));
+-- 
+2.34.1
+

@@ -1,0 +1,162 @@
+From 0cee5dfeb2be8d30e9d002e3717e585da4d679ec Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Thu, 14 Mar 2024 10:53:45 +0100
+Subject: [PATCH 1/7] Support libgcc/compiler-rt instead of hardcoding -lgcc.
+
+---
+ Makeconfig     | 21 +++++++++++++++------
+ config.make.in |  1 +
+ configure      | 25 +++++++++++++++++++++++++
+ configure.ac   |  9 +++++++++
+ elf/Makefile   |  4 ++--
+ 5 files changed, 52 insertions(+), 8 deletions(-)
+
+diff --git a/Makeconfig b/Makeconfig
+index ce19406b88..a9da0a2bbd 100644
+--- a/Makeconfig
++++ b/Makeconfig
+@@ -692,22 +692,23 @@ else
+ endif
+ libgcc_eh := -Wl,--as-needed -lgcc_s $(libunwind) -Wl,--no-as-needed
+ gnulib-arch =
+-gnulib = -lgcc $(gnulib-arch)
+-gnulib-tests := -lgcc $(libgcc_eh)
++gnulib = `$(CC) $(sysdep-LDFLAGS) --print-libgcc-file-name` $(gnulib-arch)
++gnulib-tests := `$(CC) $(sysdep-LDFLAGS) --print-libgcc-file-name` $(libgcc_eh)
+ static-gnulib-arch =
+ # By default, elf/static-stubs.o, instead of -lgcc_eh, is used to
+ # statically link programs.  When --disable-shared is used, we use
+ # -lgcc_eh since elf/static-stubs.o isn't sufficient.
+ ifeq (yes,$(build-shared))
+-static-gnulib = -lgcc $(static-gnulib-arch)
++static-gnulib = `$(CC) $(sysdep-LDFLAGS) --print-libgcc-file-name` $(static-gnulib-arch)
+ else
+-static-gnulib = -lgcc -lgcc_eh $(static-gnulib-arch)
++static-gnulib = `$(CC) $(sysdep-LDFLAGS) --print-libgcc-file-name` $(static-gnulib-arch)
+ endif
+-static-gnulib-tests := -lgcc -lgcc_eh $(libunwind)
+-libc.so-gnulib := -lgcc
++static-gnulib-tests := `$(CC) $(sysdep-LDFLAGS) --print-libgcc-file-name` $(libunwind)
++libc.so-gnulib := `$(CC) $(sysdep-LDFLAGS) --print-libgcc-file-name`
+ endif
+ +preinit = $(addprefix $(csu-objpfx),crti.o)
+ +postinit = $(addprefix $(csu-objpfx),crtn.o)
++ifeq (no,$(is-clang))
+ +prector = `$(CC) $(sysdep-LDFLAGS) --print-file-name=crtbegin.o`
+ +postctor = `$(CC) $(sysdep-LDFLAGS) --print-file-name=crtend.o`
+ # Variants of the two previous definitions for linking PIE programs.
+@@ -722,6 +723,14 @@ else
+ +prectorT = `$(CC) $(sysdep-LDFLAGS) --print-file-name=crtbeginT.o`
+ +postctorT = `$(CC) $(sysdep-LDFLAGS) --print-file-name=crtend.o`
+ endif
++else
+++prector = `$(CC) $(sysdep-LDFLAGS) --print-file-name=clang_rt.crtbegin-$(config-machine).o`
+++postctor = `$(CC) $(sysdep-LDFLAGS) --print-file-name=clang_rt.crtend-$(config-machine).o`
+++prectorS = `$(CC) $(sysdep-LDFLAGS) --print-file-name=clang_rt.crtbegin-$(config-machine).o`
+++postctorS = `$(CC) $(sysdep-LDFLAGS) --print-file-name=clang_rt.crtend-$(config-machine).o`
+++prectorT = `$(CC) $(sysdep-LDFLAGS) --print-file-name=clang_rt.crtbegin-$(config-machine).o`
+++postctorT = `$(CC) $(sysdep-LDFLAGS) --print-file-name=clang_rt.crtend-$(config-machine).o`
++endif
+ csu-objpfx = $(common-objpfx)csu/
+ elf-objpfx = $(common-objpfx)elf/
+ 
+diff --git a/config.make.in b/config.make.in
+index 55e8b7563b..1ab74f4113 100644
+--- a/config.make.in
++++ b/config.make.in
+@@ -73,6 +73,7 @@ bind-now = @bindnow@
+ have-cxx-thread_local = @libc_cv_cxx_thread_local@
+ have-loop-to-function = @libc_cv_cc_loop_to_function@
+ have-textrel_ifunc = @libc_cv_textrel_ifunc@
++is-clang = @libc_cv_compiler_is_clang@
+ 
+ multi-arch = @multi_arch@
+ 
+diff --git a/configure b/configure
+index c3084f3355..d107d6f62f 100755
+--- a/configure
++++ b/configure
+@@ -680,6 +680,7 @@ libc_cv_with_fp
+ PYTHON
+ PYTHON_PROG
+ AUTOCONF
++libc_cv_compiler_is_clang
+ BISON
+ AWK
+ SED
+@@ -5621,6 +5622,30 @@ then :
+   critic_missing="$critic_missing compiler"
+ fi
+ 
++cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++int
++main (void)
++{
++
++#ifndef __clang__
++# error not clang
++#endif
++  ;
++  return 0;
++}
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"
++then :
++  libc_cv_compiler_is_clang=yes
++else $as_nop
++  libc_cv_compiler_is_clang=no
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++
++
+ if test "x$maintainer" = "xyes"; then
+   for ac_prog in autoconf
+ do
+diff --git a/configure.ac b/configure.ac
+index babf8db1bb..ba94d3d94d 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -542,6 +542,15 @@ AC_PREPROC_IFELSE([AC_LANG_PROGRAM([[]], [[
+ AS_IF([test $libc_cv_compiler_ok != yes],
+       [critic_missing="$critic_missing compiler"])
+ 
++AC_PREPROC_IFELSE([AC_LANG_PROGRAM([[]], [[
++#ifndef __clang__
++# error not clang
++#endif]])],
++	       [libc_cv_compiler_is_clang=yes],
++	       [libc_cv_compiler_is_clang=no])
++AC_SUBST(libc_cv_compiler_is_clang)
++
++
+ if test "x$maintainer" = "xyes"; then
+   AC_CHECK_PROGS(AUTOCONF, autoconf, no)
+   case "x$AUTOCONF" in
+diff --git a/elf/Makefile b/elf/Makefile
+index 88fe44ebed..1a295d169c 100644
+--- a/elf/Makefile
++++ b/elf/Makefile
+@@ -1309,7 +1309,7 @@ $(objpfx)librtld.map: $(objpfx)dl-allobjs.os $(common-objpfx)libc_pic.a
+ 		echo ".globl $$symbol"; \
+ 		echo "$$symbol:"; \
+ 	done | $(CC) -o $@T.o $(ASFLAGS) -c -x assembler -
+-	$(reloc-link) -o $@.o $@T.o '-Wl,-(' $^ -lgcc '-Wl,-)' -Wl,-Map,$@T
++	$(reloc-link) -o $@.o $@T.o '-Wl,-(' $^ `$(reloc-link) --print-libgcc-file-name` '-Wl,-)' -Wl,-Map,$@T
+ 	rm -f %@T.o $@.o
+ 	mv -f $@T $@
+ 
+@@ -1339,7 +1339,7 @@ $(objpfx)rtld-libc.a: $(objpfx)librtld.mk FORCE
+ 	$(MAKE) -f $< -f rtld-Rules
+ 
+ $(objpfx)librtld.os: $(objpfx)dl-allobjs.os $(objpfx)rtld-libc.a
+-	$(LINK.o) -nostdlib -nostartfiles -r -o $@ '-Wl,-(' $^ -lgcc '-Wl,-)' \
++	$(LINK.o) -nostdlib -nostartfiles -r -o $@ '-Wl,-(' $^ `$(reloc-link) --print-libgcc-file-name` '-Wl,-)' \
+ 		  -Wl,-Map,$@.map
+ 
+ generated += librtld.map librtld.mk rtld-libc.a librtld.os.map
+-- 
+2.34.1
+

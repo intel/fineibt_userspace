@@ -1,0 +1,106 @@
+From e34a1b7252b2dbdcf9668928b66746427f2b24e7 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 4 Aug 2022 09:43:18 -0300
+Subject: [PATCH 019/142] elf: Suppress unused function clang for
+ __ifunc_resolver
+
+The __ifunc_resolver macro expands to:
+
+  extern __typeof (__redirect_name) name __attribute__ ((ifunc ("iname_ifunc")));
+  static __typeof (__redirect_name) *name_ifunc (void) { [...] };
+
+And although NAME_IFUNC is and alias for NAME, clang still emits
+an 'unused function 'name_ifunc' [-Werror,-Wunused-function]'
+warning.  The static is used to avoid name pollution on static
+linkage.
+---
+ elf/ifuncmain9.c           | 4 ++++
+ elf/tst-ifunc-fault-lazy.c | 4 ++++
+ include/libc-symbols.h     | 6 +++++-
+ 3 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/elf/ifuncmain9.c b/elf/ifuncmain9.c
+index 43011452b7..a13020dc6d 100644
+--- a/elf/ifuncmain9.c
++++ b/elf/ifuncmain9.c
+@@ -22,6 +22,7 @@
+ 
+ # include <stdbool.h>
+ # include <stdio.h>
++# include <libc-diag.h>
+ 
+ /* Do not use the test framework, so that the process setup is not
+    disturbed.  */
+@@ -40,6 +41,8 @@ implementation (void)
+   return random_constant;
+ }
+ 
++DIAG_PUSH_NEEDS_COMMENT_CLANG;
++DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wunused-function");
+ static __typeof__ (implementation) *
+ inhibit_stack_protector
+ resolver (void)
+@@ -49,6 +52,7 @@ resolver (void)
+ }
+ 
+ static int magic (void) __attribute__ ((ifunc ("resolver")));
++DIAG_POP_NEEDS_COMMENT_CLANG;
+ 
+ int
+ main (void)
+diff --git a/elf/tst-ifunc-fault-lazy.c b/elf/tst-ifunc-fault-lazy.c
+index 5157c6cc6c..04448b2b15 100644
+--- a/elf/tst-ifunc-fault-lazy.c
++++ b/elf/tst-ifunc-fault-lazy.c
+@@ -21,6 +21,7 @@
+    relocations.  */
+ 
+ #include <config.h>
++#include <libc-diag.h>
+ 
+ #ifdef HAVE_GCC_IFUNC
+ 
+@@ -34,6 +35,8 @@ implementation (void)
+   *p = 0;
+ }
+ 
++DIAG_PUSH_NEEDS_COMMENT_CLANG;
++DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wunused-function");
+ static __typeof__ (implementation) *
+ resolver (void)
+ {
+@@ -42,6 +45,7 @@ resolver (void)
+   *p = 0;
+   return implementation;
+ }
++DIAG_POP_NEEDS_COMMENT_CLANG;
+ 
+ static void magic (void) __attribute__ ((ifunc ("resolver")));
+ 
+diff --git a/include/libc-symbols.h b/include/libc-symbols.h
+index d14837631b..1387525484 100644
+--- a/include/libc-symbols.h
++++ b/include/libc-symbols.h
+@@ -86,6 +86,7 @@
+ 
+ /* Obtain the definition of symbol_version_reference.  */
+ #include <libc-symver.h>
++#include <libc-diag.h>
+ 
+ /* When PIC is defined and SHARED isn't defined, we are building PIE
+    by default.  */
+@@ -685,7 +686,10 @@ for linking")
+ # define __ifunc(type_name, name, expr, arg, init)			\
+   extern __typeof (type_name) name __attribute__			\
+ 			      ((ifunc (#name "_ifunc")));		\
+-  __ifunc_resolver (type_name, name, expr, arg, init, static)
++  DIAG_PUSH_NEEDS_COMMENT_CLANG;					\
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wunused-function");		\
++  __ifunc_resolver (type_name, name, expr, arg, init, static);		\
++  DIAG_POP_NEEDS_COMMENT_CLANG;
+ 
+ # define __ifunc_hidden(type_name, name, expr, arg, init)	\
+   __ifunc (type_name, name, expr, arg, init)
+-- 
+2.34.1
+

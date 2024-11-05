@@ -1,0 +1,39 @@
+From b46993d84d2bb04fe7098d6299193b797b05ec49 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Mon, 20 Mar 2023 16:20:48 -0300
+Subject: [PATCH 047/142] support: Handle clang support/dtotimespec.c on
+ dtotimespec
+
+clang issues:
+
+dtotimespec.c:31:25: error: implicit conversion from 'time_t' (aka
+'long') to 'double' changes value from 9223372036854775807 to
+9223372036854775808 [-Werror,-Wimplicit-const-int-float-conversion]
+  else if (sec >= 1.0 + TYPE_MAXIMUM (time_t))
+                      ~ ^~~~~~~~~~~~~~~~~~~~~
+../include/intprops.h:57:4: note: expanded from macro 'TYPE_MAXIMUM'
+  ((t) (! TYPE_SIGNED (t)
+\
+   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+So explicit cast it to double.
+---
+ support/dtotimespec.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/support/dtotimespec.c b/support/dtotimespec.c
+index 106b64f486..8c8eaddb51 100644
+--- a/support/dtotimespec.c
++++ b/support/dtotimespec.c
+@@ -28,7 +28,7 @@ dtotimespec (double sec)
+ {
+   if (sec <= TYPE_MINIMUM (time_t))
+     return make_timespec (TYPE_MINIMUM (time_t), 0);
+-  else if (sec >= 1.0 + TYPE_MAXIMUM (time_t))
++  else if (sec >= 1.0 + (double) TYPE_MAXIMUM (time_t))
+     return make_timespec (TYPE_MAXIMUM (time_t), TIMESPEC_HZ - 1);
+   else
+     {
+-- 
+2.34.1
+

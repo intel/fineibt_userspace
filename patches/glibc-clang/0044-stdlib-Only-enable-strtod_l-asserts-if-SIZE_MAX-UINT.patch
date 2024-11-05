@@ -1,0 +1,106 @@
+From fabaaf9f0a69739657b498cd19317c465f271b51 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 26 Jul 2022 08:38:48 -0300
+Subject: [PATCH 044/142] stdlib: Only enable strtod_l asserts if SIZE_MAX ==
+ UINTMAX_MAX
+
+clang on 32 bits where size_t is smaller than intmax_t emits:
+
+  strtod_l.c:874:18: error: result of comparison of constant
+  9223372036854775807 with expression of type 'size_t' (aka 'unsigned
+  		    int') is always true
+  [-Werror,-Wtautological-constant-out-of-range-compare]
+    assert (dig_no <= (uintmax_t) INTMAX_MAX);
+    ~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+  ../assert/assert.h:106:11: note: expanded from macro 'assert'
+        if (expr)
+  \
+            ^~~~
+
+So only enable the assert iff SIZE_MAX == UINTMAX_MAX.
+---
+ stdlib/strtod_l.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/stdlib/strtod_l.c b/stdlib/strtod_l.c
+index be515ce659..d271ed0034 100644
+--- a/stdlib/strtod_l.c
++++ b/stdlib/strtod_l.c
+@@ -871,7 +871,10 @@ ____STRTOF_INTERNAL (const STRING_TYPE *nptr, STRING_TYPE **endptr, int group,
+ 	  c = *++cp;
+ 	}
+     }
++
++#if SIZE_MAX == UINTMAX_MAX
+   assert (dig_no <= (uintmax_t) INTMAX_MAX);
++#endif
+ 
+   /* Remember start of exponent (if any).  */
+   expp = cp;
+@@ -901,16 +904,20 @@ ____STRTOF_INTERNAL (const STRING_TYPE *nptr, STRING_TYPE **endptr, int group,
+ 	    {
+ 	      if (exp_negative)
+ 		{
++#if SIZE_MAX == UINTMAX_MAX
+ 		  assert (int_no <= (uintmax_t) (INTMAX_MAX
+ 						 + MIN_EXP - MANT_DIG) / 4);
++#endif
+ 		  exp_limit = -MIN_EXP + MANT_DIG + 4 * (intmax_t) int_no;
+ 		}
+ 	      else
+ 		{
+ 		  if (int_no)
+ 		    {
++#if SIZE_MAX == UINTMAX_MAX
+ 		      assert (lead_zero == 0
+ 			      && int_no <= (uintmax_t) INTMAX_MAX / 4);
++#endif
+ 		      exp_limit = MAX_EXP - 4 * (intmax_t) int_no + 3;
+ 		    }
+ 		  else if (lead_zero == (size_t) -1)
+@@ -921,8 +928,10 @@ ____STRTOF_INTERNAL (const STRING_TYPE *nptr, STRING_TYPE **endptr, int group,
+ 		    }
+ 		  else
+ 		    {
++#if SIZE_MAX == UINTMAX_MAX
+ 		      assert (lead_zero
+ 			      <= (uintmax_t) (INTMAX_MAX - MAX_EXP - 3) / 4);
++#endif
+ 		      exp_limit = (MAX_EXP
+ 				   + 4 * (intmax_t) lead_zero
+ 				   + 3);
+@@ -933,16 +942,20 @@ ____STRTOF_INTERNAL (const STRING_TYPE *nptr, STRING_TYPE **endptr, int group,
+ 	    {
+ 	      if (exp_negative)
+ 		{
++#if SIZE_MAX == UINTMAX_MAX
+ 		  assert (int_no
+ 			  <= (uintmax_t) (INTMAX_MAX + MIN_10_EXP - MANT_DIG));
++#endif
+ 		  exp_limit = -MIN_10_EXP + MANT_DIG + (intmax_t) int_no;
+ 		}
+ 	      else
+ 		{
+ 		  if (int_no)
+ 		    {
++#if SIZE_MAX == UINTMAX_MAX
+ 		      assert (lead_zero == 0
+ 			      && int_no <= (uintmax_t) INTMAX_MAX);
++#endif
+ 		      exp_limit = MAX_10_EXP - (intmax_t) int_no + 1;
+ 		    }
+ 		  else if (lead_zero == (size_t) -1)
+@@ -953,8 +966,10 @@ ____STRTOF_INTERNAL (const STRING_TYPE *nptr, STRING_TYPE **endptr, int group,
+ 		    }
+ 		  else
+ 		    {
++#if SIZE_MAX == UINTMAX_MAX
+ 		      assert (lead_zero
+ 			      <= (uintmax_t) (INTMAX_MAX - MAX_10_EXP - 1));
++#endif
+ 		      exp_limit = MAX_10_EXP + (intmax_t) lead_zero + 1;
+ 		    }
+ 		}
+-- 
+2.34.1
+

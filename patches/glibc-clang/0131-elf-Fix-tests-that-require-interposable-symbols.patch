@@ -1,0 +1,41 @@
+From 59c270c3e59a859ced1204d2be03510539a32925 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Wed, 17 Jan 2024 15:21:25 -0300
+Subject: [PATCH 131/142] elf: Fix tests that require interposable symbols
+
+clang defaults to -fsemantic-interposition, which in turn trigger some
+optimizations (like inline) that makes some tests that rely on ELF
+symbol interposition to fail.  For this case, explicit set the symbol as
+weak to avoid it.
+---
+ elf/tst-dlclose-lazy-mod2.c | 1 +
+ elf/tst-piemod1.c           | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/elf/tst-dlclose-lazy-mod2.c b/elf/tst-dlclose-lazy-mod2.c
+index d1ae34330c..544803ca3e 100644
+--- a/elf/tst-dlclose-lazy-mod2.c
++++ b/elf/tst-dlclose-lazy-mod2.c
+@@ -20,6 +20,7 @@
+ #include <stdlib.h>
+ 
+ void
++__attribute__ ((weak))
+ exported_function (int ignored)
+ {
+   /* This function is interposed from tst-dlclose-lazy-mod1.so and
+diff --git a/elf/tst-piemod1.c b/elf/tst-piemod1.c
+index 72d7e0a187..225c057ea3 100644
+--- a/elf/tst-piemod1.c
++++ b/elf/tst-piemod1.c
+@@ -1,6 +1,7 @@
+ #include <stdio.h>
+ 
+ int
++__attribute__((weak))
+ foo (void)
+ {
+   return 21;
+-- 
+2.34.1
+

@@ -1,0 +1,28 @@
+From 19f52e0445fd2e6a126c28c33e3140bd0346464a Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Fri, 25 Mar 2022 09:00:43 -0300
+Subject: [PATCH 094/142] malloc: Suppress clang warning on tst-memalign
+
+---
+ malloc/tst-memalign.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/malloc/tst-memalign.c b/malloc/tst-memalign.c
+index 563f6413d2..27851f4196 100644
+--- a/malloc/tst-memalign.c
++++ b/malloc/tst-memalign.c
+@@ -83,7 +83,11 @@ do_test (void)
+   errno = 0;
+ 
+   /* Test to expose integer overflow in malloc internals from BZ #16038.  */
++  DIAG_PUSH_NEEDS_COMMENT_CLANG;
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wnon-power-of-two-alignment");
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wbuiltin-assume-aligned-alignment");
+   p = memalign (-1, pagesize);
++  DIAG_POP_NEEDS_COMMENT_CLANG;
+ 
+   save = errno;
+ 
+-- 
+2.34.1
+

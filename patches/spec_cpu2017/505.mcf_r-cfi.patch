@@ -1,0 +1,57 @@
+--- a/benchspec/CPU/505.mcf_r/src/implicit.c
++++ b/benchspec/CPU/505.mcf_r/src/implicit.c
+@@ -27,13 +27,16 @@ Copyright (c) 2006-2010 LBW.
+ #include "implicit.h"
+ 
+ #ifdef _PROTO_
+-static int arc_compare( arc_t **a1, arc_t **a2 )
++static int arc_compare( const void *tmp1, const void *tmp2 )
+ #else
+-static int arc_compare( a1, a2 )
+-arc_t **a1;
+-arc_t **a2;
++static int arc_compare( tmp1, tmp2 )
++  const void *tmp1;
++  const void *tmp2;
+ #endif
+ {
++  arc_t **a1 = tmp1;
++  arc_t **a2 = tmp2;
++
+   if( (*a1)->flow > (*a2)->flow )
+     return 1;
+   if( (*a1)->flow < (*a2)->flow )
+--- a/benchspec/CPU/505.mcf_r/src/pbeampp.c
++++ b/benchspec/CPU/505.mcf_r/src/pbeampp.c
+@@ -58,13 +58,16 @@ int bea_is_dual_infeasible( arc, red_cost )
+ 
+ 
+ #ifdef _PROTO_
+-int cost_compare( BASKET **b1, BASKET **b2 )
++int cost_compare( const void *tmp1, const void *tmp2 )
+ #else
+-int cost_compare( b1, b2 )
+-    BASKET **b1;
+-    BASKER **b2;
++int cost_compare( tmp1, tmp2 )
++    const void *tmp1;
++    const void *tmp2;
+ #endif
+ {
++  BASKET **b1 = tmp1;
++  BASKET **b2 = tmp2;
++
+   if( (*b1)->abs_cost < (*b2)->abs_cost )
+     return 1;
+   if( (*b1)->abs_cost > (*b2)->abs_cost )
+--- a/benchspec/CPU/505.mcf_r/src/pbeampp.h
++++ b/benchspec/CPU/505.mcf_r/src/pbeampp.h
+@@ -30,7 +30,7 @@ Copyright (c) 2006-2010 LBW.
+ 
+ extern BASKET *primal_bea_mpp _PROTO_(( LONG , arc_t *, arc_t *, LONG* , BASKET** , int,  arc_t**, LONG, LONG, LONG ));
+ extern void set_static_vars _PROTO_((network_t *, arc_t*));
+-extern int cost_compare( BASKET **b1, BASKET **b2 );
++extern int cost_compare( const void *tmp1, const void *tmp2 );
+ 
+ 
+ #endif

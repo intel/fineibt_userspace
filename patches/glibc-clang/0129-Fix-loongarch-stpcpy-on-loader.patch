@@ -1,0 +1,22 @@
+From 6370ff5783a00ab737c4050d2f3aa779e9ec06e7 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 23 Nov 2023 14:19:52 -0300
+Subject: [PATCH 129/142] Fix loongarch stpcpy on loader
+
+---
+ sysdeps/loongarch/lp64/multiarch/rtld-stpcpy.S | 3 +++
+ 1 file changed, 3 insertions(+)
+ create mode 100644 sysdeps/loongarch/lp64/multiarch/rtld-stpcpy.S
+
+diff --git a/sysdeps/loongarch/lp64/multiarch/rtld-stpcpy.S b/sysdeps/loongarch/lp64/multiarch/rtld-stpcpy.S
+new file mode 100644
+index 0000000000..5ec787481a
+--- /dev/null
++++ b/sysdeps/loongarch/lp64/multiarch/rtld-stpcpy.S
+@@ -0,0 +1,3 @@
++#define USE_AS_STPCPY
++#define STRCPY stpcpy
++#include "strcpy-aligned.S"
+-- 
+2.34.1
+

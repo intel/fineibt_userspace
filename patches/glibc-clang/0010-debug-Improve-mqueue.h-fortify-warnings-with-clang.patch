@@ -1,0 +1,75 @@
+From 53b1fc188a63db2474e30d43883a72d8633481bf Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 5 Dec 2023 16:18:54 -0300
+Subject: [PATCH 010/142] debug: Improve mqueue.h fortify warnings with clang
+
+It improve mq_open.  The compile and runtime checks have similar
+coverage as with GCC.
+
+Checked on aarch64, armhf, x86_64, and i686.
+---
+ rt/bits/mqueue2.h | 29 +++++++++++++++++++++++++++++
+ rt/mqueue.h       |  3 +--
+ 2 files changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/rt/bits/mqueue2.h b/rt/bits/mqueue2.h
+index 0f9d67966f..d6d2d9012d 100644
+--- a/rt/bits/mqueue2.h
++++ b/rt/bits/mqueue2.h
+@@ -29,6 +29,8 @@ extern mqd_t __mq_open_2 (const char *__name, int __oflag)
+ extern mqd_t __REDIRECT_NTH (__mq_open_alias, (const char *__name,
+ 					       int __oflag, ...), mq_open)
+      __nonnull ((1));
++
++#ifdef __va_arg_pack_len
+ __errordecl (__mq_open_wrong_number_of_args,
+ 	     "mq_open can be called either with 2 or 4 arguments");
+ __errordecl (__mq_open_missing_mode_and_attr,
+@@ -55,3 +57,30 @@ __NTH (mq_open (const char *__name, int __oflag, ...))
+ 
+   return __mq_open_alias (__name, __oflag, __va_arg_pack ());
+ }
++#elif __fortify_use_clang
++__fortify_function_error_function __attribute_overloadable__ mqd_t
++__NTH (mq_open (const char *__name, int __oflag, mode_t mode))
++     __fortify_clang_unavailable ("mq_open can be called either with 2 or 4 arguments");
++
++__fortify_function_error_function __attribute_overloadable__ mqd_t
++__NTH (mq_open (const char *__name, int __oflag, mode_t mode,
++		struct mq_attr *attr, ...))
++     __fortify_clang_unavailable ("mq_open can be called either with 2 or 4 arguments");
++
++__fortify_function __attribute_overloadable__ mqd_t
++__NTH (mq_open (__fortify_clang_overload_arg (const char *, ,__name),
++		int __oflag))
++     __fortify_clang_prefer_this_overload
++     __fortify_clang_error ((__oflag & O_CREAT),
++			     "mq_open with O_CREAT in second argument needs 4 arguments")
++{
++  return __mq_open_alias (__name, __oflag);
++}
++
++__fortify_function __attribute_overloadable__ mqd_t
++__NTH (mq_open (__fortify_clang_overload_arg (const char *, ,__name),
++		int __oflag, int __mode, struct mq_attr *__attr))
++{
++  return __mq_open_alias (__name, __oflag, __mode, __attr);
++}
++#endif
+diff --git a/rt/mqueue.h b/rt/mqueue.h
+index 787cc36df2..d39334ba16 100644
+--- a/rt/mqueue.h
++++ b/rt/mqueue.h
+@@ -110,8 +110,7 @@ extern int __REDIRECT (mq_timedsend, (mqd_t __mqdes,
+ #endif
+ 
+ /* Define some inlines helping to catch common problems.  */
+-#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function \
+-    && defined __va_arg_pack_len
++#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
+ # include <bits/mqueue2.h>
+ #endif
+ 
+-- 
+2.34.1
+

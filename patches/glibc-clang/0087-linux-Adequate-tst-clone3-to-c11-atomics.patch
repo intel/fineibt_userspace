@@ -1,0 +1,77 @@
+From 0850e37c7f63206f663fd31d4c31237841e2cc6f Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Fri, 25 Mar 2022 11:27:46 -0300
+Subject: [PATCH 087/142] linux: Adequate tst-clone3 to c11 atomics
+
+---
+ sysdeps/unix/sysv/linux/tst-clone3-internal.c | 8 +++-----
+ sysdeps/unix/sysv/linux/tst-clone3.c          | 8 +++-----
+ 2 files changed, 6 insertions(+), 10 deletions(-)
+
+diff --git a/sysdeps/unix/sysv/linux/tst-clone3-internal.c b/sysdeps/unix/sysv/linux/tst-clone3-internal.c
+index 2f0b20029e..459f38129c 100644
+--- a/sysdeps/unix/sysv/linux/tst-clone3-internal.c
++++ b/sysdeps/unix/sysv/linux/tst-clone3-internal.c
+@@ -45,16 +45,14 @@ f (void *a)
+    implementation.  */
+ #define wait_tid(ctid_ptr, ctid_val)					\
+   do {									\
+-    __typeof (*(ctid_ptr)) __tid;					\
+     /* We need acquire MO here so that we synchronize with the		\
+        kernel's store to 0 when the clone terminates.  */		\
+-    while ((__tid = atomic_load_explicit (ctid_ptr,			\
+-					  memory_order_acquire)) != 0)	\
++    while (atomic_load_explicit (ctid_ptr, memory_order_acquire) != 0)	\
+       futex_wait (ctid_ptr, ctid_val);					\
+   } while (0)
+ 
+ static inline int
+-futex_wait (int *futexp, int val)
++futex_wait (_Atomic pid_t *futexp, int val)
+ {
+ #ifdef __NR_futex
+   return syscall (__NR_futex, futexp, FUTEX_WAIT, val);
+@@ -75,7 +73,7 @@ do_test (void)
+   /* Initialize with a known value.  ctid is set to zero by the kernel after the
+      cloned thread has exited.  */
+ #define CTID_INIT_VAL 1
+-  pid_t ctid = CTID_INIT_VAL;
++  _Atomic pid_t ctid = CTID_INIT_VAL;
+   pid_t tid;
+ 
+   struct clone_args clone_args =
+diff --git a/sysdeps/unix/sysv/linux/tst-clone3.c b/sysdeps/unix/sysv/linux/tst-clone3.c
+index 77b8731c08..451ea12d31 100644
+--- a/sysdeps/unix/sysv/linux/tst-clone3.c
++++ b/sysdeps/unix/sysv/linux/tst-clone3.c
+@@ -45,16 +45,14 @@ f (void *a)
+    implementation.  */
+ #define wait_tid(ctid_ptr, ctid_val)					\
+   do {									\
+-    __typeof (*(ctid_ptr)) __tid;					\
+     /* We need acquire MO here so that we synchronize with the		\
+        kernel's store to 0 when the clone terminates.  */		\
+-    while ((__tid = atomic_load_explicit (ctid_ptr,			\
+-					  memory_order_acquire)) != 0)	\
++    while (atomic_load_explicit (ctid_ptr, memory_order_acquire) != 0)	\
+       futex_wait (ctid_ptr, ctid_val);					\
+   } while (0)
+ 
+ static inline int
+-futex_wait (int *futexp, int val)
++futex_wait (_Atomic pid_t *futexp, int val)
+ {
+ #ifdef __NR_futex
+   return syscall (__NR_futex, futexp, FUTEX_WAIT, val);
+@@ -75,7 +73,7 @@ do_test (void)
+   /* Initialize with a known value.  ctid is set to zero by the kernel after the
+      cloned thread has exited.  */
+ #define CTID_INIT_VAL 1
+-  pid_t ctid = CTID_INIT_VAL;
++  _Atomic pid_t ctid = CTID_INIT_VAL;
+   pid_t tid;
+ 
+ #if _STACK_GROWS_DOWN
+-- 
+2.34.1
+

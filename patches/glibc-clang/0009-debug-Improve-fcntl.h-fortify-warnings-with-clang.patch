@@ -1,0 +1,209 @@
+From cdb449e70c3f810d5e9aa8ce4f937bd4a313c5cf Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 5 Dec 2023 15:47:16 -0300
+Subject: [PATCH 009/142] debug: Improve fcntl.h fortify warnings with clang
+
+It improves open, open64, openat, and openat64.  The compile and runtime
+checks have similar coverage as with GCC.
+
+Checked on aarch64, armhf, x86_64, and i686.
+---
+ io/bits/fcntl2.h | 92 ++++++++++++++++++++++++++++++++++++++++++++++++
+ io/fcntl.h       |  3 +-
+ misc/sys/cdefs.h |  9 ++++-
+ 3 files changed, 101 insertions(+), 3 deletions(-)
+
+diff --git a/io/bits/fcntl2.h b/io/bits/fcntl2.h
+index 34f05d793d..26f1792fd1 100644
+--- a/io/bits/fcntl2.h
++++ b/io/bits/fcntl2.h
+@@ -32,6 +32,8 @@ extern int __REDIRECT (__open_2, (const char *__path, int __oflag),
+ extern int __REDIRECT (__open_alias, (const char *__path, int __oflag, ...),
+ 		       open64) __nonnull ((1));
+ #endif
++
++#ifdef __va_arg_pack_len
+ __errordecl (__open_too_many_args,
+ 	     "open can be called either with 2 or 3 arguments, not more");
+ __errordecl (__open_missing_mode,
+@@ -58,12 +60,34 @@ open (const char *__path, int __oflag, ...)
+ 
+   return __open_alias (__path, __oflag, __va_arg_pack ());
+ }
++#elif __fortify_use_clang
++__fortify_function_error_function __attribute_overloadable__ int
++open (const char *__path, int __oflag, mode_t __mode, ...)
++     __fortify_clang_unavailable ("open can be called either with 2 or 3 arguments, not more");
++
++__fortify_function __attribute_overloadable__ int
++open (__fortify_clang_overload_arg (const char *, ,__path), int __oflag)
++     __fortify_clang_prefer_this_overload
++     __fortify_clang_error (__OPEN_NEEDS_MODE (__oflag),
++			    "open with O_CREAT or O_TMPFILE in second argument needs 3 arguments")
++{
++  return __open_2 (__path, __oflag);
++}
++
++__fortify_function __attribute_overloadable__ int
++open (__fortify_clang_overload_arg (const char *, ,__path), int __oflag,
++      mode_t __mode)
++{
++  return __open_alias (__path, __oflag, __mode);
++}
++#endif
+ 
+ 
+ #ifdef __USE_LARGEFILE64
+ extern int __open64_2 (const char *__path, int __oflag) __nonnull ((1));
+ extern int __REDIRECT (__open64_alias, (const char *__path, int __oflag,
+ 					...), open64) __nonnull ((1));
++# ifdef __va_arg_pack_len
+ __errordecl (__open64_too_many_args,
+ 	     "open64 can be called either with 2 or 3 arguments, not more");
+ __errordecl (__open64_missing_mode,
+@@ -90,6 +114,27 @@ open64 (const char *__path, int __oflag, ...)
+ 
+   return __open64_alias (__path, __oflag, __va_arg_pack ());
+ }
++# elif __fortify_use_clang
++__fortify_function_error_function __attribute_overloadable__ int
++open64 (const char *__path, int __oflag, mode_t __mode, ...)
++     __fortify_clang_unavailable ("open64 can be called either with 2 or 3 arguments, not more");
++
++__fortify_function __attribute_overloadable__ int
++open64 (__fortify_clang_overload_arg (const char *, ,__path), int __oflag)
++     __fortify_clang_prefer_this_overload
++     __fortify_clang_error (__OPEN_NEEDS_MODE (__oflag),
++			    "open64 with O_CREAT or O_TMPFILE in second argument needs 3 arguments")
++{
++  return __open64_2 (__path, __oflag);
++}
++
++__fortify_function __attribute_overloadable__ int
++open64 (__fortify_clang_overload_arg (const char *, ,__path), int __oflag,
++	mode_t __mode)
++{
++  return __open64_alias (__path, __oflag, __mode);
++}
++# endif
+ #endif
+ 
+ 
+@@ -108,6 +153,8 @@ extern int __REDIRECT (__openat_alias, (int __fd, const char *__path,
+ 					int __oflag, ...), openat64)
+      __nonnull ((2));
+ # endif
++
++# ifdef __va_arg_pack_len
+ __errordecl (__openat_too_many_args,
+ 	     "openat can be called either with 3 or 4 arguments, not more");
+ __errordecl (__openat_missing_mode,
+@@ -134,6 +181,28 @@ openat (int __fd, const char *__path, int __oflag, ...)
+ 
+   return __openat_alias (__fd, __path, __oflag, __va_arg_pack ());
+ }
++# elif __fortify_use_clang
++__fortify_function_error_function __attribute_overloadable__ int
++openat (int __fd, const char *__path, int __oflag, mode_t __mode, ...)
++     __fortify_clang_unavailable ("openat can be called either with 3 or 4 arguments, not more");
++
++__fortify_function __attribute_overloadable__ int
++openat (int __fd, __fortify_clang_overload_arg (const char *, ,__path),
++	int __oflag)
++     __fortify_clang_prefer_this_overload
++     __fortify_clang_error (__OPEN_NEEDS_MODE (__oflag),
++			    "openat with O_CREAT or O_TMPFILE in third argument needs 4 arguments")
++{
++  return __openat_2 (__fd, __path, __oflag);
++}
++
++__fortify_function __attribute_overloadable__ int
++openat (int __fd, __fortify_clang_overload_arg (const char *, ,__path),
++	int __oflag, mode_t __mode)
++{
++  return __openat_alias (__fd, __path, __oflag, __mode);
++}
++# endif
+ 
+ 
+ # ifdef __USE_LARGEFILE64
+@@ -147,6 +216,7 @@ __errordecl (__openat64_too_many_args,
+ __errordecl (__openat64_missing_mode,
+ 	     "openat64 with O_CREAT or O_TMPFILE in third argument needs 4 arguments");
+ 
++#  ifdef __va_arg_pack_len
+ __fortify_function int
+ openat64 (int __fd, const char *__path, int __oflag, ...)
+ {
+@@ -168,5 +238,27 @@ openat64 (int __fd, const char *__path, int __oflag, ...)
+ 
+   return __openat64_alias (__fd, __path, __oflag, __va_arg_pack ());
+ }
++# elif __fortify_use_clang
++__fortify_function_error_function __attribute_overloadable__ int
++openat64 (int __fd, const char *__path, int __oflag, mode_t __mode, ...)
++     __fortify_clang_unavailable ("openat64 can be called either with 3 or 4 arguments, not more");
++
++__fortify_function __attribute_overloadable__ int
++openat64 (int __fd, __fortify_clang_overload_arg (const char *, ,__path),
++	  int __oflag)
++     __fortify_clang_prefer_this_overload
++     __fortify_clang_error (__OPEN_NEEDS_MODE (__oflag),
++			    "openat64 with O_CREAT or O_TMPFILE in third argument needs 4 arguments")
++{
++  return __openat64_2 (__fd, __path, __oflag);
++}
++
++__fortify_function __attribute_overloadable__ int
++openat64 (int __fd, __fortify_clang_overload_arg (const char *, ,__path),
++	  int __oflag, mode_t __mode)
++{
++  return __openat64_alias (__fd, __path, __oflag, __mode);
++}
++#  endif
+ # endif
+ #endif
+diff --git a/io/fcntl.h b/io/fcntl.h
+index 9cee0b5900..38aa12d7f2 100644
+--- a/io/fcntl.h
++++ b/io/fcntl.h
+@@ -337,8 +337,7 @@ extern int posix_fallocate64 (int __fd, off64_t __offset, off64_t __len);
+ 
+ 
+ /* Define some inlines helping to catch common problems.  */
+-#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function \
+-    && defined __va_arg_pack_len
++#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
+ # include <bits/fcntl2.h>
+ #endif
+ 
+diff --git a/misc/sys/cdefs.h b/misc/sys/cdefs.h
+index 62507044c8..6b03417453 100644
+--- a/misc/sys/cdefs.h
++++ b/misc/sys/cdefs.h
+@@ -257,7 +257,9 @@
+ 
+ # define __fortify_clang_warning(__c, __msg) \
+   __attribute__ ((__diagnose_if__ ((__c), (__msg), "warning")))
+-# define __fortify_clang_warning_only_if_bos0_lt(n, buf, complaint) \
++#  define __fortify_clang_error(__c, __msg) \
++  __attribute__ ((__diagnose_if__ ((__c), (__msg), "error")))
++#  define __fortify_clang_warning_only_if_bos0_lt(n, buf, complaint) \
+   __attribute__ ((__diagnose_if__ \
+ 		  (__fortify_clang_bosn_args (__bos0, n, buf, 1, complaint))))
+ # define __fortify_clang_warning_only_if_bos0_lt2(n, buf, div, complaint) \
+@@ -270,6 +272,11 @@
+   __attribute__ ((__diagnose_if__ \
+ 		  (__fortify_clang_bosn_args (__bos, n, buf, div, complaint))))
+ 
++#  define __fortify_clang_prefer_this_overload \
++  __attribute__ ((enable_if (1, "")))
++#  define __fortify_clang_unavailable(__msg) \
++  __attribute__ ((unavailable(__msg)))
++
+ # if __USE_FORTIFY_LEVEL == 3
+ #  define __fortify_clang_overload_arg(__type, __attr, __name) \
+   __type __attr const __fortify_clang_pass_dynamic_object_size __name
+-- 
+2.34.1
+

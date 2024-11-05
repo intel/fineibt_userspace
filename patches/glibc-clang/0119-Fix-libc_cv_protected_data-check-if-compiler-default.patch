@@ -1,0 +1,40 @@
+From 9b89aa6b5863351af361fe960a80edd5d584bf9e Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 1 Sep 2022 15:19:23 -0300
+Subject: [PATCH 119/142] Fix libc_cv_protected_data check if compiler defaults
+ to PIE
+
+---
+ configure    | 2 +-
+ configure.ac | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/configure b/configure
+index 296fcb6e0b..db058a78b5 100755
+--- a/configure
++++ b/configure
+@@ -6579,7 +6579,7 @@ EOF
+ 		  extern int bar;
+ 		  int main (void) { return bar; }
+ EOF
+-		  if { ac_try='${CC-cc} -nostdlib -nostartfiles $no_ssp conftest.c -o conftest conftest.so'
++		  if { ac_try='${CC-cc} -fno-pie -nostdlib -nostartfiles $no_ssp conftest.c -o conftest conftest.so'
+   { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
+   (eval $ac_try) 2>&5
+   ac_status=$?
+diff --git a/configure.ac b/configure.ac
+index 80bf04627b..d8b1843593 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1123,7 +1123,7 @@ EOF
+ 		  extern int bar;
+ 		  int main (void) { return bar; }
+ EOF
+-		  if AC_TRY_COMMAND(${CC-cc} -nostdlib -nostartfiles $no_ssp conftest.c -o conftest conftest.so); then
++		  if AC_TRY_COMMAND(${CC-cc} -fno-pie -nostdlib -nostartfiles $no_ssp conftest.c -o conftest conftest.so); then
+ 		    libc_cv_protected_data=yes
+ 		  fi
+ 		fi
+-- 
+2.34.1
+

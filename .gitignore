@@ -1,0 +1,8 @@
+toolchains/
+build/
+logs/
+
+llvm/
+glibc/
+linux/
+musl/

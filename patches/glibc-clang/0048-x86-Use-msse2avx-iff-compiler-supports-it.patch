@@ -1,0 +1,93 @@
+From 7322a2fa46f25e930094837e57ee445857993066 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 10 Mar 2022 15:05:51 -0300
+Subject: [PATCH 048/142] x86: Use -msse2avx iff compiler supports it
+
+---
+ sysdeps/x86_64/configure              | 24 ++++++++++++++++++++++++
+ sysdeps/x86_64/configure.ac           |  9 +++++++++
+ sysdeps/x86_64/fpu/multiarch/Makefile | 14 +++++++-------
+ 3 files changed, 40 insertions(+), 7 deletions(-)
+
+diff --git a/sysdeps/x86_64/configure b/sysdeps/x86_64/configure
+index 418cc4a9b8..da6698e0cb 100755
+--- a/sysdeps/x86_64/configure
++++ b/sysdeps/x86_64/configure
+@@ -134,6 +134,30 @@ fi
+ config_vars="$config_vars
+ enable-cet = $enable_cet"
+ 
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking -msse2avx" >&5
++printf %s "checking -msse2avx... " >&6; }
++if test ${libc_cv_cc_msse2avx+y}
++then :
++  printf %s "(cached) " >&6
++else $as_nop
++  if { ac_try='${CC-cc} -msse2avx -xc /dev/null -S -o /dev/null'
++  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; }
++then :
++  libc_cv_cc_msse2avx=-msse2avx
++else $as_nop
++  libc_cv_cc_msse2avx=
++fi
++
++fi
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $libc_cv_cc_msse2avx" >&5
++printf "%s\n" "$libc_cv_cc_msse2avx" >&6; }
++config_vars="$config_vars
++config-cflags-msse2avx = $libc_cv_cc_msse2avx"
++
+ test -n "$critic_missing" && as_fn_error $? "
+ *** $critic_missing" "$LINENO" 5
+ 
+diff --git a/sysdeps/x86_64/configure.ac b/sysdeps/x86_64/configure.ac
+index d1f803c02e..b299e85b59 100644
+--- a/sysdeps/x86_64/configure.ac
++++ b/sysdeps/x86_64/configure.ac
+@@ -61,5 +61,14 @@ elif test $enable_cet = permissive; then
+ fi
+ LIBC_CONFIG_VAR([enable-cet], [$enable_cet])
+ 
++dnl Check if compiler supports -msse2avx
++AC_CACHE_CHECK(-msse2avx, libc_cv_cc_msse2avx, [dnl
++LIBC_TRY_CC_OPTION([-msse2avx],
++		   [libc_cv_cc_msse2avx=-msse2avx],
++		   [libc_cv_cc_msse2avx=])
++])
++LIBC_CONFIG_VAR([config-cflags-msse2avx],
++		[$libc_cv_cc_msse2avx])
++
+ test -n "$critic_missing" && AC_MSG_ERROR([
+ *** $critic_missing])
+diff --git a/sysdeps/x86_64/fpu/multiarch/Makefile b/sysdeps/x86_64/fpu/multiarch/Makefile
+index 0253edf027..2346a5a27a 100644
+--- a/sysdeps/x86_64/fpu/multiarch/Makefile
++++ b/sysdeps/x86_64/fpu/multiarch/Makefile
+@@ -117,13 +117,13 @@ libm-sysdep_routines += \
+   s_tan-avx \
+ # libm-sysdep_routines
+ 
+-CFLAGS-e_atan2-avx.c = -msse2avx -DSSE2AVX
+-CFLAGS-e_exp-avx.c = -msse2avx -DSSE2AVX
+-CFLAGS-e_log-avx.c = -msse2avx -DSSE2AVX
+-CFLAGS-s_atan-avx.c = -msse2avx -DSSE2AVX
+-CFLAGS-s_sin-avx.c = -msse2avx -DSSE2AVX
+-CFLAGS-s_tan-avx.c = -msse2avx -DSSE2AVX
+-CFLAGS-s_sincos-avx.c = -msse2avx -DSSE2AVX
++CFLAGS-e_atan2-avx.c = $(config-cflags-msse2avx) -DSSE2AVX
++CFLAGS-e_exp-avx.c = $(config-cflags-msse2avx) -DSSE2AVX
++CFLAGS-e_log-avx.c = $(config-cflags-msse2avx) -DSSE2AVX
++CFLAGS-s_atan-avx.c = $(config-cflags-msse2avx) -DSSE2AVX
++CFLAGS-s_sin-avx.c = $(config-cflags-msse2avx) -DSSE2AVX
++CFLAGS-s_tan-avx.c = $(config-cflags-msse2avx) -DSSE2AVX
++CFLAGS-s_sincos-avx.c = $(config-cflags-msse2avx) -DSSE2AVX
+ endif
+ 
+ ifeq ($(subdir),mathvec)
+-- 
+2.34.1
+

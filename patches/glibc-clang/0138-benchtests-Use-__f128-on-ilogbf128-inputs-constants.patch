@@ -1,0 +1,30 @@
+From 33b7358fd64119dcc7b4148ce892f017e4003d38 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 6 Feb 2024 16:51:45 -0300
+Subject: [PATCH 138/142] benchtests: Use __f128 on ilogbf128-inputs constants
+
+---
+ benchtests/ilogbf128-inputs | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/benchtests/ilogbf128-inputs b/benchtests/ilogbf128-inputs
+index bfbfc93714..596ab4f513 100644
+--- a/benchtests/ilogbf128-inputs
++++ b/benchtests/ilogbf128-inputs
+@@ -3,9 +3,9 @@
+ ## includes: math.h
+ 
+ ## name: subnormal
+-6.47517511943802511092443895822764655e-4966f128
+-0x1.fffffffffffffff8p-16383f128
++__f128(6.47517511943802511092443895822764655e-4966)
++__f128(0x1.fffffffffffffff8p-16383)
+ 
+ ## name: normal
+-1.0
+--0x8.2faf442f390a9211f5af128673fp+0L
++__f128(1.0)
++__f128(-0x8.2faf442f390a9211f5af128673fp+0)
+-- 
+2.34.1
+

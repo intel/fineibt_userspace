@@ -1,0 +1,36 @@
+From 102f6424791ee49c9600898dc9312ba278a7f8c5 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 30 Jan 2024 13:45:14 +0000
+Subject: [PATCH 135/142] math: Fix potential underflow on ldbl-128 erfl
+
+The multiplication is only required if the branch is taken, and the
+compiler might not optimize it away.
+
+Checked on aarch64-linux-gnu with gcc and clang.
+---
+ sysdeps/ieee754/ldbl-128/s_erfl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sysdeps/ieee754/ldbl-128/s_erfl.c b/sysdeps/ieee754/ldbl-128/s_erfl.c
+index 1cbedc249d..e52d88bde3 100644
+--- a/sysdeps/ieee754/ldbl-128/s_erfl.c
++++ b/sysdeps/ieee754/ldbl-128/s_erfl.c
+@@ -778,7 +778,6 @@ __erfl (_Float128 x)
+     }
+   u.parts32.w0 = ix;
+   a = u.value;
+-  z = x * x;
+   if (ix < 0x3ffec000)  /* a < 0.875 */
+     {
+       if (ix < 0x3fc60000) /* |x|<2**-57 */
+@@ -792,6 +791,7 @@ __erfl (_Float128 x)
+ 	    }
+ 	  return x + efx * x;
+ 	}
++      z = x * x;
+       y = a + a * neval (z, TN1, NTN1) / deval (z, TD1, NTD1);
+     }
+   else
+-- 
+2.34.1
+

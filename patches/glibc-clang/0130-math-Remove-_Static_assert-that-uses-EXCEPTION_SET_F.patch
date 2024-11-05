@@ -1,0 +1,59 @@
+From f7d4a6676aaf39e53a1b7d12740806b68156f784 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 4 Jan 2024 10:29:09 -0300
+Subject: [PATCH 130/142] math: Remove _Static_assert that uses
+ EXCEPTION_SET_FORCES_TRAP
+
+And make them a runtime check with assert since
+EXCEPTION_SET_FORCES_TRAP might not be an integral constant expression
+(i.e on i386).
+---
+ math/test-fesetexcept-traps.c | 10 +++++++---
+ math/test-fexcept-traps.c     | 10 +++++++---
+ 2 files changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/math/test-fesetexcept-traps.c b/math/test-fesetexcept-traps.c
+index 73f542027e..3aff7073e4 100644
+--- a/math/test-fesetexcept-traps.c
++++ b/math/test-fesetexcept-traps.c
+@@ -46,9 +46,13 @@ do_test (void)
+      Also check if the function does not alter the exception mask.  */
+   ret = fesetexcept (FE_ALL_EXCEPT);
+ 
+-  _Static_assert (!(EXCEPTION_SET_FORCES_TRAP && !EXCEPTION_TESTS(float)),
+-		  "EXCEPTION_SET_FORCES_TRAP only makes sense if the "
+-		  "architecture suports exceptions");
++  if (EXCEPTION_SET_FORCES_TRAP && !EXCEPTION_TESTS(float))
++    {
++      puts ("EXCEPTION_SET_FORCES_TRAP only makes sense if the architecture "
++	    "suports exceptions");
++      return 77;
++    }
++
+   {
+     int exc_before = fegetexcept ();
+     ret = fesetexcept (FE_ALL_EXCEPT);
+diff --git a/math/test-fexcept-traps.c b/math/test-fexcept-traps.c
+index 0f5802c773..83053b074d 100644
+--- a/math/test-fexcept-traps.c
++++ b/math/test-fexcept-traps.c
+@@ -70,9 +70,13 @@ do_test (void)
+      Also check if the function does not alter the exception mask.  */
+   ret = fesetexceptflag (&saved, FE_ALL_EXCEPT);
+ 
+-  _Static_assert (!(EXCEPTION_SET_FORCES_TRAP && !EXCEPTION_TESTS(float)),
+-		  "EXCEPTION_SET_FORCES_TRAP only makes sense if the "
+-		  "architecture suports exceptions");
++  if (EXCEPTION_SET_FORCES_TRAP && !EXCEPTION_TESTS(float))
++    {
++      puts ("EXCEPTION_SET_FORCES_TRAP only makes sense if the architecture "
++	    "suports exceptions");
++      return 77;
++    }
++
+   {
+     int exc_before = fegetexcept ();
+     ret = fesetexceptflag (&saved, FE_ALL_EXCEPT);
+-- 
+2.34.1
+

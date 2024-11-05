@@ -1,0 +1,167 @@
+From ec891e8549d968978d129de67ea4ccf579953d4e Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 1 Sep 2022 09:29:23 -0300
+Subject: [PATCH 118/142] stdio: Suppress %Z format for clang
+
+clang does not handle %Z on print, and just suppressing
+-Wformat-invalid-specifier might trigger another warning for extra
+arguments (since %Z is ignored).  So suppress -Wformat-extra-args
+as well.
+
+For tst-fphex.c a heavy hammer is used since the printf is more
+complex and clang thrown a more generic warning.
+---
+ stdio-common/bug1.c      | 11 +++++++++++
+ stdio-common/bug5.c      |  6 ++++++
+ stdio-common/test_rdwr.c |  7 +++++++
+ stdio-common/tst-fphex.c |  5 +++++
+ stdio-common/tstgetln.c  |  6 ++++++
+ 5 files changed, 35 insertions(+)
+
+diff --git a/stdio-common/bug1.c b/stdio-common/bug1.c
+index 18e7d4c257..f23ee5b6bb 100644
+--- a/stdio-common/bug1.c
++++ b/stdio-common/bug1.c
+@@ -1,6 +1,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <libc-diag.h>
+ 
+ int
+ main (void)
+@@ -13,12 +14,22 @@ main (void)
+   stream = open_memstream (&bp, &size);
+   fprintf (stream, "hello");
+   fflush (stream);
++  /* clang do not handle %Z format.  */
++  DIAG_PUSH_NEEDS_COMMENT_CLANG;
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-invalid-specifier");
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-extra-args");
+   printf ("buf = %s, size = %Zu\n", bp, size);
++  DIAG_POP_NEEDS_COMMENT_CLANG;
+   lose |= size != 5;
+   lose |= strncmp (bp, "hello", size);
+   fprintf (stream, ", world");
+   fclose (stream);
++  /* clang do not handle %Z format.  */
++  DIAG_PUSH_NEEDS_COMMENT_CLANG;
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-invalid-specifier");
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-extra-args");
+   printf ("buf = %s, size = %Zu\n", bp, size);
++  DIAG_POP_NEEDS_COMMENT_CLANG;
+   lose |= size != 12;
+   lose |= strncmp (bp, "hello, world", 12);
+ 
+diff --git a/stdio-common/bug5.c b/stdio-common/bug5.c
+index dfa19aed55..c46810f94c 100644
+--- a/stdio-common/bug5.c
++++ b/stdio-common/bug5.c
+@@ -6,6 +6,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <unistd.h>
++#include <libc-diag.h>
+ 
+ #include <support/support.h>
+ 
+@@ -30,7 +31,12 @@ main (void)
+       return 1;
+     }
+   for (i = 0; i < 1000; ++i)
++    /* clang do not handle %Z format.  */
++    DIAG_PUSH_NEEDS_COMMENT_CLANG;
++    DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-invalid-specifier");
++    DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-extra-args");
+     fprintf (in, "%Zu\n", i);
++    DIAG_POP_NEEDS_COMMENT_CLANG;
+ 
+   out = fopen (outname, "w");
+   if (out == NULL)
+diff --git a/stdio-common/test_rdwr.c b/stdio-common/test_rdwr.c
+index 67fbe4e1de..8e501ba20f 100644
+--- a/stdio-common/test_rdwr.c
++++ b/stdio-common/test_rdwr.c
+@@ -19,6 +19,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <libc-diag.h>
+ 
+ #include <support/xstdio.h>
+ 
+@@ -54,6 +55,11 @@ main (int argc, char **argv)
+   rewind (f);
+   (void) fputs (buf, f);
+   rewind (f);
++
++  /* clang do not handle %Z format.  */
++  DIAG_PUSH_NEEDS_COMMENT_CLANG;
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-invalid-specifier");
++  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-extra-args");
+   {
+     size_t i;
+     for (i = 0; i < replace_from; ++i)
+@@ -101,6 +107,7 @@ main (int argc, char **argv)
+ 	lose = 1;
+       }
+   }
++  DIAG_POP_NEEDS_COMMENT_CLANG;
+ 
+   if (!lose)
+     {
+diff --git a/stdio-common/tst-fphex.c b/stdio-common/tst-fphex.c
+index efba482537..7c0e4bd6fc 100644
+--- a/stdio-common/tst-fphex.c
++++ b/stdio-common/tst-fphex.c
+@@ -3,6 +3,7 @@
+ #include <array_length.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <libc-diag.h>
+ 
+ #ifndef WIDE
+ # define STR_LEN strlen
+@@ -56,10 +57,14 @@ do_test (void)
+       int n = SPRINT (buf, array_length (buf), t->fmt, t->value);
+       if (n != STR_LEN (t->expect) || STR_CMP (buf, t->expect) != 0)
+ 	{
++	  /* clang do not handle %Z format.  */
++	  DIAG_PUSH_NEEDS_COMMENT_CLANG;
++	  DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat");
+ 	  PRINT (L_("" S "\tExpected \"" S "\" (%Zu)\n\tGot      \""
+ 		    S "\" (%d, %Zu)\n"),
+ 		 t->fmt, t->expect, STR_LEN (t->expect),
+ 		 buf, n, STR_LEN (buf));
++	  DIAG_POP_NEEDS_COMMENT_CLANG;
+ 	  result = 1;
+ 	}
+     }
+diff --git a/stdio-common/tstgetln.c b/stdio-common/tstgetln.c
+index b2e8263283..c0a64d22c7 100644
+--- a/stdio-common/tstgetln.c
++++ b/stdio-common/tstgetln.c
+@@ -16,6 +16,7 @@
+    <https://www.gnu.org/licenses/>.  */
+ 
+ #include <stdio.h>
++#include <libc-diag.h>
+ 
+ int
+ main (int argc, char *argv[])
+@@ -26,7 +27,12 @@ main (int argc, char *argv[])
+ 
+   while ((len = getline (&buf, &size, stdin)) != -1)
+     {
++      /* clang do not handle %Z format.  */
++      DIAG_PUSH_NEEDS_COMMENT_CLANG;
++      DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-invalid-specifier");
++      DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat-extra-args");
+       printf ("bufsize %Zu; read %Zd: ", size, len);
++      DIAG_POP_NEEDS_COMMENT_CLANG;
+       if (fwrite (buf, len, 1, stdout) != 1)
+ 	{
+ 	  perror ("fwrite");
+-- 
+2.34.1
+

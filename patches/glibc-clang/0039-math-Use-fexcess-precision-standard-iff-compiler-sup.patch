@@ -1,0 +1,149 @@
+From be123324b425662215bb39e76fc0b32977bd78a1 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 10 Mar 2022 17:22:41 -0300
+Subject: [PATCH 039/142] math: Use -fexcess-precision=standard iff compiler
+ supports it
+
+---
+ configure                | 48 ++++++++++++++++++++++++++++++++++++++++
+ configure.ac             | 16 ++++++++++++++
+ math/Makefile            |  6 ++---
+ support/Makefile         |  4 ++--
+ sysdeps/x86/fpu/Makefile |  4 ++--
+ 5 files changed, 71 insertions(+), 7 deletions(-)
+
+diff --git a/configure b/configure
+index 742c5c7c14..b7c591dfaa 100755
+--- a/configure
++++ b/configure
+@@ -7123,6 +7123,54 @@ printf "%s\n" "$libc_cv_wno_ignored_attributes" >&6; }
+ config_vars="$config_vars
+ config-cflags-wno-ignored-attributes = $libc_cv_wno_ignored_attributes"
+ 
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for -Wno-maybe-uninitialized" >&5
++printf %s "checking for -Wno-maybe-uninitialized... " >&6; }
++if test ${libc_cv_wno_maybe_uninitialized+y}
++then :
++  printf %s "(cached) " >&6
++else $as_nop
++  		if { ac_try='${CC-cc} -Werror -Wno-maybe-uninitialized -xc /dev/null -S -o /dev/null'
++  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; }
++then :
++  libc_cv_wno_maybe_uninitialized=-Wno-maybe-uninitialized
++else $as_nop
++  libc_cv_wno_maybe_uninitialized=
++fi
++
++fi
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $libc_cv_wno_maybe_uninitialized" >&5
++printf "%s\n" "$libc_cv_wno_maybe_uninitialized" >&6; }
++config_vars="$config_vars
++config-cflags-wno-maybe-uninitialized = $libc_cv_wno_maybe_uninitialized"
++
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for -fexcess-precision=standard" >&5
++printf %s "checking for -fexcess-precision=standard... " >&6; }
++if test ${libc_cv_fexcess_precision_standard+y}
++then :
++  printf %s "(cached) " >&6
++else $as_nop
++  		if { ac_try='${CC-cc} -Werror -fexcess-precision=standard -xc /dev/null -S -o /dev/null'
++  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; }
++then :
++  libc_cv_fexcess_precision_standard=-fexcess-precision=standard
++else $as_nop
++  libc_cv_fexcess_precision_standard=
++fi
++
++fi
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $libc_cv_fexcess_precision_standard" >&5
++printf "%s\n" "$libc_cv_fexcess_precision_standard" >&6; }
++config_vars="$config_vars
++config-cflags-fexcess-precision-standard = $libc_cv_fexcess_precision_standard"
++
+ { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether cc puts quotes around section names" >&5
+ printf %s "checking whether cc puts quotes around section names... " >&6; }
+ if test ${libc_cv_have_section_quotes+y}
+diff --git a/configure.ac b/configure.ac
+index c10e4bc306..591f7ee84d 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1359,6 +1359,22 @@ rm -f conftest*])
+ LIBC_CONFIG_VAR([config-cflags-wno-ignored-attributes],
+ 		[$libc_cv_wno_ignored_attributes])
+ 
++AC_CACHE_CHECK([for -Wno-maybe-uninitialized], libc_cv_wno_maybe_uninitialized, [dnl
++		LIBC_TRY_CC_OPTION([-Werror -Wno-maybe-uninitialized],
++				   [libc_cv_wno_maybe_uninitialized=-Wno-maybe-uninitialized],
++				   [libc_cv_wno_maybe_uninitialized=])
++])
++LIBC_CONFIG_VAR([config-cflags-wno-maybe-uninitialized],
++		[$libc_cv_wno_maybe_uninitialized])
++
++AC_CACHE_CHECK([for -fexcess-precision=standard], libc_cv_fexcess_precision_standard, [dnl
++		LIBC_TRY_CC_OPTION([-Werror -fexcess-precision=standard],
++				   [libc_cv_fexcess_precision_standard=-fexcess-precision=standard],
++				   [libc_cv_fexcess_precision_standard=])
++])
++LIBC_CONFIG_VAR([config-cflags-fexcess-precision-standard],
++		[$libc_cv_fexcess_precision_standard])
++
+ AC_CACHE_CHECK(whether cc puts quotes around section names,
+ 	       libc_cv_have_section_quotes,
+ 	       [cat > conftest.c <<EOF
+diff --git a/math/Makefile b/math/Makefile
+index e405a70416..9f518dfe96 100644
+--- a/math/Makefile
++++ b/math/Makefile
+@@ -455,9 +455,9 @@ CFLAGS-test-math-iszero.cc += -std=gnu++11
+ CFLAGS-test-math-issignaling.cc += -std=gnu++11
+ CFLAGS-test-math-iscanonical.cc += -std=gnu++11
+ 
+-CFLAGS-test-iszero-excess-precision.c += -fexcess-precision=standard
+-CFLAGS-test-iseqsig-excess-precision.c += -fexcess-precision=standard
+-CFLAGS-test-flt-eval-method.c += -fexcess-precision=standard
++CFLAGS-test-iszero-excess-precision.c += $(config-cflags-fexcess-precision-standard)
++CFLAGS-test-iseqsig-excess-precision.c += $(config-cflags-fexcess-precision-standard)
++CFLAGS-test-flt-eval-method.c += $(config-cflags-fexcess-precision-standard)
+ 
+ CFLAGS-test-fe-snans-always-signal.c += $(config-cflags-signaling-nans)
+ 
+diff --git a/support/Makefile b/support/Makefile
+index 362a51f882..1e58711fa0 100644
+--- a/support/Makefile
++++ b/support/Makefile
+@@ -248,8 +248,8 @@ CFLAGS-.oS += -fexceptions -fasynchronous-unwind-tables
+ # being within the observed range.  The code uses double internally
+ # in support_timespec_check_in_range and for that computation we use
+ # -fexcess-precision=standard.
+-CFLAGS-timespec.c += -fexcess-precision=standard
+-CFLAGS-timespec-time64.c += -fexcess-precision=standard
++CFLAGS-timespec.c += $(config-cflags-fexcess-precision-standard)
++CFLAGS-timespec-time64.c += $(config-cflags-fexcess-precision-standard)
+ 
+ # Ensure that general support files use 64-bit time_t
+ CFLAGS-delayed_exit.c += -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64
+diff --git a/sysdeps/x86/fpu/Makefile b/sysdeps/x86/fpu/Makefile
+index 600e42c3db..68bd42cdd3 100644
+--- a/sysdeps/x86/fpu/Makefile
++++ b/sysdeps/x86/fpu/Makefile
+@@ -8,7 +8,7 @@ tests += test-fenv-sse test-fenv-clear-sse test-fenv-x87 test-fenv-sse-2 \
+ CFLAGS-test-fenv-sse.c += -msse2 -mfpmath=sse
+ CFLAGS-test-fenv-clear-sse.c += -msse2 -mfpmath=sse
+ CFLAGS-test-fenv-sse-2.c += -msse2 -mfpmath=sse
+-CFLAGS-test-flt-eval-method-387.c += -fexcess-precision=standard -mfpmath=387
+-CFLAGS-test-flt-eval-method-sse.c += -fexcess-precision=standard -msse2 \
++CFLAGS-test-flt-eval-method-387.c += $(config-cflags-fexcess-precision-standard) -mfpmath=387
++CFLAGS-test-flt-eval-method-sse.c += $(config-cflags-fexcess-precision-standard) -msse2 \
+ 				     -mfpmath=sse
+ endif
+-- 
+2.34.1
+

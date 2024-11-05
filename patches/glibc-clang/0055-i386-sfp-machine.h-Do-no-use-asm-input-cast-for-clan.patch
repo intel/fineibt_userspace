@@ -1,0 +1,111 @@
+From 3859a340f89e6373859251b48e3ca4e81510a922 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 26 Jul 2022 08:45:41 -0300
+Subject: [PATCH 055/142] i386: sfp-machine.h: Do no use asm input cast for
+ clang
+
+clang by default rejects the input casts with:
+
+  error: invalid use of a cast in a inline asm context requiring an
+  lvalue: remove the cast or build with -fheinous-gnu-extensions
+
+And even with -fheinous-gnu-extensions clang still throws an warning
+and also states that this option might be removed in the future.
+For gcc the cast are still useful [1] as type-checking.
+
+[1] https://gcc.gnu.org/pipermail/gcc-patches/2021-October/581722.html
+---
+ sysdeps/x86/fpu/sfp-machine.h | 44 +++++++++++++++++++++--------------
+ 1 file changed, 26 insertions(+), 18 deletions(-)
+
+diff --git a/sysdeps/x86/fpu/sfp-machine.h b/sysdeps/x86/fpu/sfp-machine.h
+index 89a73642b1..dd23c797bd 100644
+--- a/sysdeps/x86/fpu/sfp-machine.h
++++ b/sysdeps/x86/fpu/sfp-machine.h
+@@ -64,15 +64,23 @@ typedef unsigned int UTItype __attribute__ ((mode (TI)));
+ # define _FP_WS_TYPE		signed int
+ # define _FP_I_TYPE		int
+ 
++/* clang does not support output constraint as lvalue, while gcc uses it as a
++   simple type check.  */
++# ifdef __clang__
++#  define __asm_output_check_type(__type, __arg) (__arg)
++# else
++#  define __asm_output_check_type(__type, __arg) ((__type)(__arg))
++# endif
++
+ # define __FP_FRAC_ADD_4(r3,r2,r1,r0,x3,x2,x1,x0,y3,y2,y1,y0)	\
+   __asm__ ("add{l} {%11,%3|%3,%11}\n\t"				\
+ 	   "adc{l} {%9,%2|%2,%9}\n\t"				\
+ 	   "adc{l} {%7,%1|%1,%7}\n\t"				\
+ 	   "adc{l} {%5,%0|%0,%5}"				\
+-	   : "=r" ((USItype) (r3)),				\
+-	     "=&r" ((USItype) (r2)),				\
+-	     "=&r" ((USItype) (r1)),				\
+-	     "=&r" ((USItype) (r0))				\
++	   : "=r" __asm_output_check_type (USItype, r3),	\
++	     "=&r" __asm_output_check_type (USItype, r2),	\
++	     "=&r" __asm_output_check_type (USItype, r1),	\
++	     "=&r" __asm_output_check_type (USItype, r0)	\
+ 	   : "%0" ((USItype) (x3)),				\
+ 	     "g" ((USItype) (y3)),				\
+ 	     "%1" ((USItype) (x2)),				\
+@@ -85,9 +93,9 @@ typedef unsigned int UTItype __attribute__ ((mode (TI)));
+   __asm__ ("add{l} {%8,%2|%2,%8}\n\t"				\
+ 	   "adc{l} {%6,%1|%1,%6}\n\t"				\
+ 	   "adc{l} {%4,%0|%0,%4}"				\
+-	   : "=r" ((USItype) (r2)),				\
+-	     "=&r" ((USItype) (r1)),				\
+-	     "=&r" ((USItype) (r0))				\
++	   : "=r" __asm_output_check_type (USItype, r2),	\
++	     "=&r" __asm_output_check_type (USItype, r1),	\
++	     "=&r" __asm_output_check_type (USItype, r0)	\
+ 	   : "%0" ((USItype) (x2)),				\
+ 	     "g" ((USItype) (y2)),				\
+ 	     "%1" ((USItype) (x1)),				\
+@@ -99,10 +107,10 @@ typedef unsigned int UTItype __attribute__ ((mode (TI)));
+ 	   "sbb{l} {%9,%2|%2,%9}\n\t"				\
+ 	   "sbb{l} {%7,%1|%1,%7}\n\t"				\
+ 	   "sbb{l} {%5,%0|%0,%5}"				\
+-	   : "=r" ((USItype) (r3)),				\
+-	     "=&r" ((USItype) (r2)),				\
+-	     "=&r" ((USItype) (r1)),				\
+-	     "=&r" ((USItype) (r0))				\
++	   : "=r" __asm_output_check_type (USItype, r3),	\
++	     "=&r" __asm_output_check_type (USItype, r2),	\
++	     "=&r" __asm_output_check_type (USItype, r1),	\
++	     "=&r" __asm_output_check_type (USItype, r0)	\
+ 	   : "0" ((USItype) (x3)),				\
+ 	     "g" ((USItype) (y3)),				\
+ 	     "1" ((USItype) (x2)),				\
+@@ -115,9 +123,9 @@ typedef unsigned int UTItype __attribute__ ((mode (TI)));
+   __asm__ ("sub{l} {%8,%2|%2,%8}\n\t"				\
+ 	   "sbb{l} {%6,%1|%1,%6}\n\t"				\
+ 	   "sbb{l} {%4,%0|%0,%4}"				\
+-	   : "=r" ((USItype) (r2)),				\
+-	     "=&r" ((USItype) (r1)),				\
+-	     "=&r" ((USItype) (r0))				\
++	   : "=r" __asm_output_check_type (USItype, r2),	\
++	     "=&r" __asm_output_check_type (USItype, r1),	\
++	     "=&r" __asm_output_check_type (USItype, r0)	\
+ 	   : "0" ((USItype) (x2)),				\
+ 	     "g" ((USItype) (y2)),				\
+ 	     "1" ((USItype) (x1)),				\
+@@ -129,10 +137,10 @@ typedef unsigned int UTItype __attribute__ ((mode (TI)));
+ 	   "adc{l} {$0,%2|%2,0}\n\t"				\
+ 	   "adc{l} {$0,%1|%1,0}\n\t"				\
+ 	   "adc{l} {$0,%0|%0,0}"				\
+-	   : "+r" ((USItype) (x3)),				\
+-	     "+&r" ((USItype) (x2)),				\
+-	     "+&r" ((USItype) (x1)),				\
+-	     "+&r" ((USItype) (x0))				\
++	   : "+r" __asm_output_check_type (USItype, x3),	\
++	     "+&r" __asm_output_check_type (USItype, x2),	\
++	     "+&r" __asm_output_check_type (USItype, x1),	\
++	     "+&r" __asm_output_check_type (USItype, x0)	\
+ 	   : "g" ((USItype) (i)))
+ 
+ 
+-- 
+2.34.1
+

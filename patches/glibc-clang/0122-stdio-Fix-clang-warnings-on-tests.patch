@@ -1,0 +1,38 @@
+From 82918c893a2228b5b12aa7db18470b0238b9f14f Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 27 Jul 2023 15:27:08 -0300
+Subject: [PATCH 122/142] stdio: Fix clang warnings on tests
+
+clang does not support 'I' specifier and handles it as a 'length
+modifier'.
+---
+ stdio-common/tst-scanf-to_inpunct.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/stdio-common/tst-scanf-to_inpunct.c b/stdio-common/tst-scanf-to_inpunct.c
+index 6fc038f476..fab1a232b9 100644
+--- a/stdio-common/tst-scanf-to_inpunct.c
++++ b/stdio-common/tst-scanf-to_inpunct.c
+@@ -18,6 +18,7 @@
+    <https://www.gnu.org/licenses/>.  */
+ 
+ #include <array_length.h>
++#include <libc-diag.h>
+ #include <stdio.h>
+ #include <support/support.h>
+ #include <support/check.h>
+@@ -68,7 +69,11 @@ do_test (void)
+   for (int i = 0; i < array_length (inputs); i++)
+     {
+       int n;
++      /* clang does not support 'I' specifier.  */
++      DIAG_PUSH_NEEDS_COMMENT_CLANG;
++      DIAG_IGNORE_NEEDS_COMMENT_CLANG (13, "-Wformat");
+       sscanf (inputs[i].str, "%Id", &n);
++      DIAG_POP_NEEDS_COMMENT_CLANG;
+       TEST_COMPARE (n, inputs[i].n);
+     }
+ 
+-- 
+2.34.1
+

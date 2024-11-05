@@ -1,0 +1,11 @@
+--- a/benchspec/CPU/525.x264_r/src/x264_src/extras/getopt.c
++++ b/benchspec/CPU/525.x264_r/src/x264_src/extras/getopt.c
+@@ -213,7 +213,7 @@ static char *posixly_correct;
+    whose names are inconsistent.  */
+ 
+ #ifndef getenv
+-extern char *getenv ();
++extern char *getenv (const char *);
+ #endif
+ 
+ static char *

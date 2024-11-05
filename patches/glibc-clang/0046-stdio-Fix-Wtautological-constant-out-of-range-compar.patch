@@ -1,0 +1,40 @@
+From 1812de79ab0b4e055773b2d4592e2b80b7a11f7b Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 3 Jan 2023 14:35:09 -0300
+Subject: [PATCH 046/142] stdio: Fix
+ -Wtautological-constant-out-of-range-compare on clang
+
+clang emits an error while building vfprintf-internal for default
+case:
+
+error: result of comparison of constant 255 with expression of type
+'char' is always true
+[-Werror,-Wtautological-constant-out-of-range-compare]
+          if (spec <= UCHAR_MAX
+
+The test is indeed not required for default non-wide build.
+---
+ stdio-common/vfprintf-internal.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/stdio-common/vfprintf-internal.c b/stdio-common/vfprintf-internal.c
+index 771beca9bf..ba5802cdb9 100644
+--- a/stdio-common/vfprintf-internal.c
++++ b/stdio-common/vfprintf-internal.c
+@@ -1338,7 +1338,12 @@ printf_positional (struct Xprintf_buffer * buf, const CHAR_T *format,
+       /* Process format specifiers.  */
+       do
+ 	{
+-	  if (spec <= UCHAR_MAX
++# ifdef COMPILE_WPRINTF
++#  define CHECK_SPEC(spec) ((spec) <= UCHAR_MAX)
++# else
++#  define CHECK_SPEC(spec) (true)
++# endif
++	  if (CHECK_SPEC (spec)
+ 	      && __printf_function_table != NULL
+ 	      && __printf_function_table[(size_t) spec] != NULL)
+ 	    {
+-- 
+2.34.1
+

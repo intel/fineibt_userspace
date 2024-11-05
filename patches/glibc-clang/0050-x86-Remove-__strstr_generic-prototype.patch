@@ -1,0 +1,43 @@
+From 40ea7b8ad2da3beb94e121c5521554d3e401da47 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Mon, 14 Mar 2022 18:27:33 -0300
+Subject: [PATCH 050/142] x86: Remove __strstr_generic prototype
+
+This is not really require and clang throws a attribute declaration must
+precede definition:
+
+  ../sysdeps/x86_64/multiarch/strstr.c:37:54: error: attribute declaration
+  must precede definition [-Werror,-Wignored-attributes]
+  extern __typeof (__redirect_strstr) __strstr_generic attribute_hidden;
+                                                       ^
+  ./../include/libc-symbols.h:423:43: note: expanded from macro
+  'attribute_hidden'
+  # define attribute_hidden __attribute__ ((visibility ("hidden")))
+                                            ^
+  ../string/strstr.c:76:1: note: previous definition is here
+  STRSTR (const char *haystack, const char *needle)
+  ^
+  ../sysdeps/x86_64/multiarch/strstr.c:27:16: note: expanded from macro
+  'STRSTR'
+  #define STRSTR __strstr_generic
+                 ^
+  1 error generated.
+---
+ sysdeps/x86_64/multiarch/strstr.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/sysdeps/x86_64/multiarch/strstr.c b/sysdeps/x86_64/multiarch/strstr.c
+index a513bac5c3..0845048202 100644
+--- a/sysdeps/x86_64/multiarch/strstr.c
++++ b/sysdeps/x86_64/multiarch/strstr.c
+@@ -34,7 +34,6 @@
+ #include "string/strstr.c"
+ 
+ extern __typeof (__redirect_strstr) __strstr_sse2_unaligned attribute_hidden;
+-extern __typeof (__redirect_strstr) __strstr_generic attribute_hidden;
+ extern __typeof (__redirect_strstr) __strstr_avx512 attribute_hidden;
+ 
+ #include "init-arch.h"
+-- 
+2.34.1
+

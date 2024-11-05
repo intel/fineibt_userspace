@@ -1,0 +1,36 @@
+From d021dc382c818e7aac777c5bd3b4922b866a6870 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 1 Sep 2022 08:08:59 -0300
+Subject: [PATCH 117/142] resolve: Fix implicit conversion on
+ tst-resolv-invalid-cname
+
+  tst-resolv-invalid-cname.c:313:17: error: implicit conversion from 'int'
+  to 'char' changes value from 192 to -64 [-Werror,-Wconstant-conversion]
+        addr[0] = 192;
+                ~ ^~~
+  tst-resolv-invalid-cname.c:314:17: error: implicit conversion from 'int'
+  to 'char' changes value from 168 to -88 [-Werror,-Wconstant-conversion]
+        addr[1] = 168;
+                ~ ^~~
+---
+ resolv/tst-resolv-invalid-cname.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/resolv/tst-resolv-invalid-cname.c b/resolv/tst-resolv-invalid-cname.c
+index 69f1c63be1..7675a45950 100644
+--- a/resolv/tst-resolv-invalid-cname.c
++++ b/resolv/tst-resolv-invalid-cname.c
+@@ -310,8 +310,8 @@ check_reverse (int af, int bits, int count)
+   socklen_t addrlen;
+   if (af == AF_INET)
+     {
+-      addr[0] = 192;
+-      addr[1] = 168;
++      addr[0] = 0xc0;
++      addr[1] = 0xa8;
+       addr[2] = count;
+       addr[3] = bits;
+       addrlen = 4;
+-- 
+2.34.1
+

@@ -1,0 +1,44 @@
+From 8b1df51320ec9bfeec9df11135ca990c618f6e2d Mon Sep 17 00:00:00 2001
+From: Fangrui Song <maskray@google.com>
+Date: Sun, 26 Sep 2021 00:15:23 -0700
+Subject: [PATCH 028/142] configure: Fix check for
+ -fno-tree-loop-distribute-patterns
+
+clang does not support -fno-tree-loop-distribute-patterns and using
+on __attribute__ ((__optimize__ (...))) only triggers a warning
+with AC_TRY_COMMAND.  Add -Werror so the tests fails if compiler
+does not support it.
+---
+ configure    | 2 +-
+ configure.ac | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/configure b/configure
+index 688d9ae6e0..a3cc038ac1 100755
+--- a/configure
++++ b/configure
+@@ -7277,7 +7277,7 @@ __attribute__ ((__optimize__ ("-fno-tree-loop-distribute-patterns")))
+ foo (void) {}
+ EOF
+ libc_cv_cc_loop_to_function=no
+-if { ac_try='${CC-cc} $CFLAGS $CPPFLAGS -c conftest.c'
++if { ac_try='${CC-cc} $CFLAGS $CPPFLAGS -Werror -c conftest.c'
+   { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
+   (eval $ac_try) 2>&5
+   ac_status=$?
+diff --git a/configure.ac b/configure.ac
+index c7f946c774..315fc5fb2b 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1439,7 +1439,7 @@ __attribute__ ((__optimize__ ("-fno-tree-loop-distribute-patterns")))
+ foo (void) {}
+ EOF
+ libc_cv_cc_loop_to_function=no
+-if AC_TRY_COMMAND([${CC-cc} $CFLAGS $CPPFLAGS -c conftest.c])
++if AC_TRY_COMMAND([${CC-cc} $CFLAGS $CPPFLAGS -Werror -c conftest.c])
+ then
+   libc_cv_cc_loop_to_function=yes
+ fi
+-- 
+2.34.1
+

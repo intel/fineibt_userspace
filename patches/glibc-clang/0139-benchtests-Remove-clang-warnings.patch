@@ -1,0 +1,54 @@
+From 79a99d11da2083e551ae6fc28f692d08344069c6 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 6 Feb 2024 16:52:17 -0300
+Subject: [PATCH 139/142] benchtests: Remove clang warnings
+
+clangs warns of the implicit cast of RAND_MAX to float:
+
+  error: implicit conversion from 'int' to 'float' changes value from
+  2147483647 to 2147483648 [-Werror,-Wimplicit-const-int-float-conversion]
+
+So make it explicit.
+---
+ benchtests/bench-malloc-thread.c | 2 +-
+ benchtests/bench-strchr.c        | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/benchtests/bench-malloc-thread.c b/benchtests/bench-malloc-thread.c
+index 46fdabd30c..74e71ec9ce 100644
+--- a/benchtests/bench-malloc-thread.c
++++ b/benchtests/bench-malloc-thread.c
+@@ -63,7 +63,7 @@ get_block_size (unsigned int rand_data)
+   float min_pow = powf (dist_min, exponent + 1);
+   float max_pow = powf (dist_max, exponent + 1);
+ 
+-  float r = (float) rand_data / RAND_MAX;
++  float r = (float) rand_data / (float) RAND_MAX;
+ 
+   return (unsigned int) powf ((max_pow - min_pow) * r + min_pow,
+ 			      1 / (exponent + 1));
+diff --git a/benchtests/bench-strchr.c b/benchtests/bench-strchr.c
+index 5ef3a9d438..35e674fed0 100644
+--- a/benchtests/bench-strchr.c
++++ b/benchtests/bench-strchr.c
+@@ -97,7 +97,7 @@ do_one_rand_plus_branch_test (json_ctx_t *json_ctx, impl_t *impl,
+                               const CHAR *s, const CHAR *c)
+ {
+   size_t i, iters = INNER_LOOP_ITERS8;
+-  int must_execute = 0;
++  volatile int must_execute = 0;
+   timing_t start, stop, cur;
+   TIMING_NOW (start);
+   for (i = 0; i < iters; ++i)
+@@ -162,7 +162,7 @@ do_rand_test (json_ctx_t *json_ctx, size_t align, size_t pos, size_t len,
+   buf[align + len] = 0;
+   buf[align + pos] = 1;
+ 
+-  perc_zero_int = perc_zero * RAND_MAX;
++  perc_zero_int = perc_zero * (float) RAND_MAX;
+   for (i = 0; i < NUM_SEARCH_CHARS; ++i)
+     {
+       if (rand () > perc_zero_int)
+-- 
+2.34.1
+

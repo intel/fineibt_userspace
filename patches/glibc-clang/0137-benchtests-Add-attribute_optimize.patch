@@ -1,0 +1,125 @@
+From a2017486800dece423cfbacbb52836cae84af018 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 6 Feb 2024 16:51:25 -0300
+Subject: [PATCH 137/142] benchtests: Add attribute_optimize
+
+Similar to tst-printf-bz18872.sh, add the attribute_optimize to avoid
+build failures with compilers that do not support "GCC optimize" pragma.
+---
+ benchtests/bench-pthread-lock-base.c | 11 +++++------
+ benchtests/bench-pthread-locks.c     | 10 +++-------
+ benchtests/bench-util.h              |  6 ++++++
+ 3 files changed, 14 insertions(+), 13 deletions(-)
+
+diff --git a/benchtests/bench-pthread-lock-base.c b/benchtests/bench-pthread-lock-base.c
+index 0a6155714a..e94a69321c 100644
+--- a/benchtests/bench-pthread-lock-base.c
++++ b/benchtests/bench-pthread-lock-base.c
+@@ -28,6 +28,7 @@
+ #include <sys/time.h>
+ #include <sys/sysinfo.h>
+ #include "bench-timing.h"
++#include "bench-util.h"
+ #include "json-lib.h"
+ 
+ static bench_lock_t lock;
+@@ -36,10 +37,8 @@ static pthread_barrier_t barrier;
+ 
+ #define START_ITERS 1000
+ 
+-#pragma GCC push_options
+-#pragma GCC optimize(1)
+-
+-static int __attribute__ ((noinline)) fibonacci (int i)
++static int __attribute__ ((noinline)) attribute_optimize (1)
++fibonacci (int i)
+ {
+   asm("");
+   if (i > 2)
+@@ -48,6 +47,7 @@ static int __attribute__ ((noinline)) fibonacci (int i)
+ }
+ 
+ static void
++attribute_optimize (1)
+ do_filler (void)
+ {
+   char buf1[512], buf2[512];
+@@ -56,6 +56,7 @@ do_filler (void)
+ }
+ 
+ static void
++attribute_optimize (1)
+ do_filler_shared (void)
+ {
+   static char buf1[512], buf2[512];
+@@ -63,8 +64,6 @@ do_filler_shared (void)
+   memcpy (buf1, buf2, f);
+ }
+ 
+-#pragma GCC pop_options
+-
+ #define UNIT_WORK_CRT do_filler_shared ()
+ #define UNIT_WORK_NON_CRT do_filler ()
+ 
+diff --git a/benchtests/bench-pthread-locks.c b/benchtests/bench-pthread-locks.c
+index 9cfe08604a..c7e82d1d81 100644
+--- a/benchtests/bench-pthread-locks.c
++++ b/benchtests/bench-pthread-locks.c
+@@ -29,6 +29,7 @@
+ #include <sys/time.h>
+ #include <math.h>
+ #include "bench-timing.h"
++#include "bench-util.h"
+ #include "json-lib.h"
+ 
+ /* The point of this benchmark is to measure the overhead of an empty
+@@ -61,10 +62,7 @@ typedef timing_t (*test_t)(long, int);
+    total time each test iteration takes, so as to not swamp the useful
+    timings.  */
+ 
+-#pragma GCC push_options
+-#pragma GCC optimize(1)
+-
+-static int __attribute__((noinline))
++static int __attribute__((noinline)) attribute_optimize (1)
+ fibonacci (int i)
+ {
+   asm("");
+@@ -73,7 +71,7 @@ fibonacci (int i)
+   return 10+i;
+ }
+ 
+-static void
++static void attribute_optimize (1)
+ do_filler (void)
+ {
+   static char buf1[512], buf2[512];
+@@ -81,8 +79,6 @@ do_filler (void)
+   memcpy (buf1, buf2, f);
+ }
+ 
+-#pragma GCC pop_options
+-
+ static timing_t
+ test_mutex (long iters, int filler)
+ {
+diff --git a/benchtests/bench-util.h b/benchtests/bench-util.h
+index 91d9089237..66a677ac9b 100644
+--- a/benchtests/bench-util.h
++++ b/benchtests/bench-util.h
+@@ -24,6 +24,12 @@
+     __v;					  \
+   })
+ 
++#if __GNUC_PREREQ (4, 4) || __glibc_has_attribute (__optimize__)
++# define attribute_optimize(level) __attribute__ ((optimize (level)))
++#else
++# define attribute_optimize(level)
++#endif
++
+ #ifndef START_ITER
+ # define START_ITER (100000000)
+ #endif
+-- 
+2.34.1
+

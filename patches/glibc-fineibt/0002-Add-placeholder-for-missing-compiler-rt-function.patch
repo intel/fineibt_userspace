@@ -1,0 +1,38 @@
+From 9940b652ae4d37f112ad259ec827e569c60028f1 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Tue, 19 Mar 2024 16:11:06 +0100
+Subject: [PATCH 2/7] Add placeholder for missing compiler-rt function.
+
+libgcc contains __sfp_handle_exceptions, but compiler-rt does not.
+This commit adds a weak dummy implementation.
+---
+ sysdeps/x86/fpu/Makefile | 1 +
+ sysdeps/x86/fpu/compat.c | 4 ++++
+ 2 files changed, 5 insertions(+)
+ create mode 100644 sysdeps/x86/fpu/compat.c
+
+diff --git a/sysdeps/x86/fpu/Makefile b/sysdeps/x86/fpu/Makefile
+index 2d584dbfeb..10ccddc213 100644
+--- a/sysdeps/x86/fpu/Makefile
++++ b/sysdeps/x86/fpu/Makefile
+@@ -3,6 +3,7 @@ ifeq ($(subdir),math)
+ CPPFLAGS += -I../soft-fp
+ 
+ libm-support += powl_helper
++libm-support += compat
+ tests += test-fenv-sse test-fenv-clear-sse test-fenv-x87 test-fenv-sse-2 \
+ 	 test-flt-eval-method-sse
+ ifneq ($(config-cflags-mfpath-387),)
+diff --git a/sysdeps/x86/fpu/compat.c b/sysdeps/x86/fpu/compat.c
+new file mode 100644
+index 0000000000..3d2e1e16d2
+--- /dev/null
++++ b/sysdeps/x86/fpu/compat.c
+@@ -0,0 +1,4 @@
++__attribute__((weak))
++void __sfp_handle_exceptions (int);
++
++void __sfp_handle_exceptions (int fex) { }
+-- 
+2.34.1
+

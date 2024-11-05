@@ -1,0 +1,215 @@
+From 5e3f17afa6350ac47cc0d349d240cc00f1172b94 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 22 Aug 2023 16:27:15 -0300
+Subject: [PATCH 125/142] i686: Do not build ifunc tests if compiler does not
+ generate supported relocations
+
+clang with --target i668 might not produce supported relocations
+that ld.bfd can use for -static-pie without -fPIC, which are used
+on some tests.  Disable them for now.
+---
+ aclocal.m4                |  6 +++---
+ configure                 |  4 ++++
+ configure.ac              |  3 +++
+ elf/Makefile              | 18 +++++++++++++++---
+ sysdeps/i386/configure    | 31 +++++++++++++++++++++++++++++++
+ sysdeps/i386/configure.ac | 15 +++++++++++++++
+ 6 files changed, 71 insertions(+), 6 deletions(-)
+
+diff --git a/aclocal.m4 b/aclocal.m4
+index a097d66a49..25735e4881 100644
+--- a/aclocal.m4
++++ b/aclocal.m4
+@@ -148,7 +148,7 @@ AC_SUBST(NM)
+ ])
+ 
+ dnl Run a static link test with -nostdlib -nostartfiles.
+-dnl LIBC_TRY_LINK_STATIC([code], [action-if-true], [action-if-false])
++dnl LIBC_TRY_LINK_STATIC([code], [opts], [action-if-true], [action-if-false])
+ AC_DEFUN([LIBC_TRY_LINK_STATIC],
+ [cat > conftest.c <<EOF
+ int _start (void) { return 0; }
+@@ -156,9 +156,9 @@ int __start (void) { return 0; }
+ $1
+ EOF
+ AS_IF([AC_TRY_COMMAND([${CC-cc} $CFLAGS $CPPFLAGS $LDFLAGS $no_ssp -o conftest
+-		       conftest.c -static -nostartfiles -nostdlib
++		       conftest.c $2 -static -nostartfiles -nostdlib
+ 		       1>&AS_MESSAGE_LOG_FD])],
+-      [$2], [$3])
++      [$3], [$4])
+ rm -f conftest*])
+ 
+ dnl Test a compiler option or options with an empty input file.
+diff --git a/configure b/configure
+index 7dc395193a..c3084f3355 100755
+--- a/configure
++++ b/configure
+@@ -7999,6 +7999,7 @@ libc_cv_localstatedir=$localstatedir
+ libc_cv_gcc_unwind_find_fde=no
+ libc_cv_idn=no
+ pthread_in_libc=yes
++libc_cv_ifunc_static_pie=yes
+ 
+ # Iterate over all the sysdep directories we will use, running their
+ # configure fragments.
+@@ -8014,6 +8015,9 @@ printf "%s\n" "running configure fragment for $dir" >&6; }
+   fi
+ done
+ 
++config_vars="$config_vars
++ifunc-static-pie = $libc_cv_ifunc_static_pie"
++
+ if test x"$build_mathvec" = xnotset; then
+   build_mathvec=no
+ fi
+diff --git a/configure.ac b/configure.ac
+index fc50642673..babf8db1bb 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1758,6 +1758,7 @@ libc_cv_localstatedir=$localstatedir
+ libc_cv_gcc_unwind_find_fde=no
+ libc_cv_idn=no
+ pthread_in_libc=yes
++libc_cv_ifunc_static_pie=yes
+ 
+ # Iterate over all the sysdep directories we will use, running their
+ # configure fragments.
+@@ -1772,6 +1773,8 @@ for dir in $sysnames; do
+   fi
+ done
+ 
++LIBC_CONFIG_VAR([ifunc-static-pie], [$libc_cv_ifunc_static_pie])
++
+ if test x"$build_mathvec" = xnotset; then
+   build_mathvec=no
+ fi
+diff --git a/elf/Makefile b/elf/Makefile
+index 2579234b26..49e205b38d 100644
+--- a/elf/Makefile
++++ b/elf/Makefile
+@@ -1048,16 +1048,20 @@ tests += $(tests-static)
+ ifeq (yes,$(have-ifunc))
+ tests-ifuncstatic := \
+   ifuncmain1picstatic \
+-  ifuncmain1static \
+   ifuncmain2picstatic \
+   ifuncmain2static \
+   ifuncmain4picstatic \
+-  ifuncmain4static \
+   ifuncmain5picstatic \
+   ifuncmain5static \
++  # tests-ifuncstatic
++ifeq (yes,$(ifunc-static-pie))
++tests-ifuncstatic += \
++  ifuncmain1static \
++  ifuncmain4static \
+   ifuncmain7picstatic \
+   ifuncmain7static \
+   # tests-ifuncstatic
++endif
+ ifeq (yes,$(have-gcc-ifunc))
+ tests-ifuncstatic += ifuncmain9static ifuncmain9picstatic
+ endif
+@@ -1077,11 +1081,15 @@ tests-internal += \
+   ifuncmain2 \
+   ifuncmain2pic \
+   ifuncmain3 \
+-  ifuncmain4 \
+   ifuncmain5staticpic \
++  # tests-internal
++ifeq (yes,$(ifunc-static-pie))
++tests-internal += \
++  ifuncmain4 \
+   ifuncmain7 \
+   ifuncmain7pic \
+   # tests-internal
++endif
+ ifeq (no,$(with-lld))
+ tests-internal += \
+   ifuncmain1 \
+@@ -1110,9 +1118,13 @@ ifunc-pie-tests = \
+   ifuncmain1pie \
+   ifuncmain1staticpie \
+   ifuncmain1vispie \
++  # ifunc-pie-tests
++ifeq (yes,$(ifunc-static-pie))
++ifunc-pie-tests += \
+   ifuncmain6pie \
+   ifuncmain7pie \
+   # ifunc-pie-tests
++endif
+ ifeq (yes,$(have-gcc-ifunc))
+ ifunc-pie-tests += ifuncmain9pie
+ endif
+diff --git a/sysdeps/i386/configure b/sysdeps/i386/configure
+index 84656cef6e..d10a9b6fd0 100644
+--- a/sysdeps/i386/configure
++++ b/sysdeps/i386/configure
+@@ -89,6 +89,37 @@ printf "%s\n" "$libc_cv_ld_static_pie" >&6; }
+   fi
+ fi
+ 
++if test "$libc_cv_static_pie" == "yes"; then
++  cat > conftest.c <<EOF
++int _start (void) { return 0; }
++int __start (void) { return 0; }
++int foo (void) __attribute__ ((ifunc ("foo_ifunc")));
++void *
++foo_ifunc (void)
++{
++  return 0;
++}
++int main (void)
++{
++  return foo ();
++}
++EOF
++if { ac_try='${CC-cc} $CFLAGS $CPPFLAGS $LDFLAGS $no_ssp -o conftest
++		       conftest.c -fPIE -static-pie -static -nostartfiles -nostdlib
++		       1>&5'
++  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; }
++then :
++  libc_cv_ifunc_static_pie=yes
++else $as_nop
++  libc_cv_ifunc_static_pie=no
++fi
++rm -f conftest*
++fi
++
+ if test x"$multi_arch" != xno; then
+   printf "%s\n" "#define NO_HIDDEN_EXTERN_FUNC_IN_PIE 1" >>confdefs.h
+ 
+diff --git a/sysdeps/i386/configure.ac b/sysdeps/i386/configure.ac
+index 7f68e6210a..d61ab42927 100644
+--- a/sysdeps/i386/configure.ac
++++ b/sysdeps/i386/configure.ac
+@@ -58,6 +58,21 @@ rm -f conftest*])
+   fi
+ fi
+ 
++if test "$libc_cv_static_pie" == "yes"; then
++  LIBC_TRY_LINK_STATIC([dnl
++int foo (void) __attribute__ ((ifunc ("foo_ifunc")));
++void *
++foo_ifunc (void)
++{
++  return 0;
++}
++int main (void)
++{
++  return foo ();
++}],
++    [-fPIE -static-pie], libc_cv_ifunc_static_pie=yes, libc_cv_ifunc_static_pie=no)
++fi
++
+ dnl When multi-arch is enabled, all external functions must be called
+ dnl via PIC PLT in PIE, which requires setting up EBX register.
+ if test x"$multi_arch" != xno; then
+-- 
+2.34.1
+

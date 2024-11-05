@@ -1,0 +1,31 @@
+From 5a5018165fc28e4689643d74ceae66288c997be4 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 7 Oct 2021 18:16:04 -0700
+Subject: [PATCH 014/142] Disable __USE_EXTERN_INLINES for clang
+
+clang does not allow to redefine attributes after function declaration.
+Although it work for external usage, its breaks the build for internal
+symbol that glibc provides as optimization (for instance bsearch
+with stdlib-bsearch.h or __cmsg_nxthdr).
+
+Disable such optimization for clang while building glibc.
+---
+ include/features.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/features.h b/include/features.h
+index d92503dfed..23e29b9f4d 100644
+--- a/include/features.h
++++ b/include/features.h
+@@ -523,7 +523,7 @@
+ /* Decide whether we can define 'extern inline' functions in headers.  */
+ #if __GNUC_PREREQ (2, 7) && defined __OPTIMIZE__ \
+     && !defined __OPTIMIZE_SIZE__ && !defined __NO_INLINE__ \
+-    && defined __extern_inline
++    && defined __extern_inline && !(defined __clang__ && defined _LIBC)
+ # define __USE_EXTERN_INLINES	1
+ #endif
+ 
+-- 
+2.34.1
+

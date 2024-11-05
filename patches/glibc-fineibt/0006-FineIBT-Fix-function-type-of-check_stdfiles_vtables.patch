@@ -1,0 +1,27 @@
+From 83e9044b610d6b0964d3c0e88c16c7223e2a4899 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Tue, 9 Apr 2024 18:05:49 +0200
+Subject: [PATCH 6/7] FineIBT: Fix function type of check_stdfiles_vtables
+
+---
+ libio/vtables.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/libio/vtables.c b/libio/vtables.c
+index 8a2c726bf5..ab46e2cf19 100644
+--- a/libio/vtables.c
++++ b/libio/vtables.c
+@@ -541,8 +541,9 @@ _IO_vtable_check (void)
+ #ifdef SHARED
+ __attribute__ ((constructor))
+ static void
+-check_stdfiles_vtables (void)
++check_stdfiles_vtables (int argc, char** argv, char** envp)
+ {
++  (void)argc, (void)argv, (void)envp;
+   if (_IO_2_1_stdin_.vtable != &_IO_file_jumps
+       || _IO_2_1_stdout_.vtable != &_IO_file_jumps
+       || _IO_2_1_stderr_.vtable != &_IO_file_jumps)
+-- 
+2.34.1
+

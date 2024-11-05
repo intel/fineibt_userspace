@@ -1,0 +1,41 @@
+From 84ed4d2d48adbd93a44d4a8b535678f08be83a21 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Tue, 16 Apr 2024 15:25:13 +0200
+Subject: [PATCH 7/7] FineIBT: Fix _dl_fini signature (is this correct way?)
+
+---
+ elf/dl-fini.c              | 3 ++-
+ sysdeps/generic/ldsodefs.h | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/elf/dl-fini.c b/elf/dl-fini.c
+index db996270de..86caeb2259 100644
+--- a/elf/dl-fini.c
++++ b/elf/dl-fini.c
+@@ -22,8 +22,9 @@
+ #include <elf-initfini.h>
+ 
+ void
+-_dl_fini (void)
++_dl_fini (void *arg, int status)
+ {
++    (void)arg, (void)status;
+   /* Lots of fun ahead.  We have to call the destructors for all still
+      loaded objects, in all namespaces.  The problem is that the ELF
+      specification now demands that dependencies between the modules
+diff --git a/sysdeps/generic/ldsodefs.h b/sysdeps/generic/ldsodefs.h
+index 117c901ccc..f4b18f202d 100644
+--- a/sysdeps/generic/ldsodefs.h
++++ b/sysdeps/generic/ldsodefs.h
+@@ -1039,7 +1039,7 @@ extern void _dl_init (struct link_map *main_map, int argc, char **argv,
+ 
+ /* Call the finalizer functions of all shared objects whose
+    initializer functions have completed.  */
+-extern void _dl_fini (void) attribute_hidden;
++extern void _dl_fini (void *arg, int status) attribute_hidden;
+ 
+ /* Invoke the DT_FINI_ARRAY and DT_FINI destructors for MAP, which
+    must be a struct link_map *.  Can be used as an argument to
+-- 
+2.34.1
+

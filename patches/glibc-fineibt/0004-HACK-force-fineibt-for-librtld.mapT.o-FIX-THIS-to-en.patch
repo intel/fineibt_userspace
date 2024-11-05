@@ -1,0 +1,26 @@
+From df06b1b65cd277adf0fd6de1a5e8408821f527cc Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Tue, 9 Apr 2024 17:01:56 +0200
+Subject: [PATCH 4/7] [HACK] force fineibt for librtld.mapT.o FIX THIS to
+ enable this only when using fineibt
+
+---
+ elf/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/elf/Makefile b/elf/Makefile
+index 1a295d169c..58f9d82d65 100644
+--- a/elf/Makefile
++++ b/elf/Makefile
+@@ -1309,7 +1309,7 @@ $(objpfx)librtld.map: $(objpfx)dl-allobjs.os $(common-objpfx)libc_pic.a
+ 		echo ".globl $$symbol"; \
+ 		echo "$$symbol:"; \
+ 	done | $(CC) -o $@T.o $(ASFLAGS) -c -x assembler -
+-	$(reloc-link) -o $@.o $@T.o '-Wl,-(' $^ `$(reloc-link) --print-libgcc-file-name` '-Wl,-)' -Wl,-Map,$@T
++	$(reloc-link) -o $@.o $@T.o '-Wl,-(' $^ `$(reloc-link) --print-libgcc-file-name` '-Wl,-)' -Wl,-Map,$@T -Wl,-zforce-ibt -Wl,-zforce-fineibt
+ 	rm -f %@T.o $@.o
+ 	mv -f $@T $@
+ 
+-- 
+2.34.1
+

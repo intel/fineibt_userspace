@@ -1,0 +1,281 @@
+From fe177b6733842a617ce6dc9de15194447ecb6be1 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 8 Feb 2024 10:56:30 -0300
+Subject: [PATCH 141/142] Enable --enable-fortify-source with clang
+
+---
+ debug/vasprintf_chk.c                |  1 +
+ debug/vfprintf_chk.c                 |  1 +
+ elf/Makefile                         |  8 ++++++++
+ include/bits/stdio2-decl.h           |  7 +++++++
+ include/bits/string_fortified.h      | 15 +++++++++++++++
+ include/bits/syslog-decl.h           |  4 ++++
+ include/bits/unistd-decl.h           |  6 ++++++
+ include/bits/wchar2-decl.h           |  5 +++++
+ include/stdio.h                      |  2 ++
+ include/string.h                     |  1 +
+ include/unistd.h                     |  4 ----
+ include/wchar.h                      |  1 -
+ libio/Makefile                       |  1 +
+ misc/syslog.c                        |  4 +++-
+ string/Makefile                      |  1 +
+ sysdeps/generic/symbol-hacks.h       | 15 +++++++++++++++
+ sysdeps/unix/sysv/linux/not-cancel.h |  8 ++++----
+ 17 files changed, 74 insertions(+), 10 deletions(-)
+
+diff --git a/debug/vasprintf_chk.c b/debug/vasprintf_chk.c
+index 2d6bf8ebba..693bac0432 100644
+--- a/debug/vasprintf_chk.c
++++ b/debug/vasprintf_chk.c
+@@ -35,3 +35,4 @@ __vasprintf_chk (char **result_ptr, int flag, const char *format, va_list ap)
+ 
+   return __vasprintf_internal (result_ptr, format, ap, mode);
+ }
++libc_hidden_def (__vasprintf_chk)
+diff --git a/debug/vfprintf_chk.c b/debug/vfprintf_chk.c
+index 62c34a965e..7ee34d57a7 100644
+--- a/debug/vfprintf_chk.c
++++ b/debug/vfprintf_chk.c
+@@ -29,3 +29,4 @@ ___vfprintf_chk (FILE *fp, int flag, const char *format, va_list ap)
+   return __vfprintf_internal (fp, format, ap, mode);
+ }
+ ldbl_strong_alias (___vfprintf_chk, __vfprintf_chk)
++ldbl_hidden_def (___vfprintf_chk, __vfprintf_chk)
+diff --git a/elf/Makefile b/elf/Makefile
+index 49e205b38d..88fe44ebed 100644
+--- a/elf/Makefile
++++ b/elf/Makefile
+@@ -1289,6 +1289,14 @@ rtld-stubbed-symbols = \
+   realloc \
+   # rtld-stubbed-symbols
+ 
++# These symbols might be emitted by the compiler when fortify is enabled
++# (through builtins).
++rtld-stubbed-symbols += \
++  __GI___vfprintf_chk \
++  __GI___vsprintf_chk \
++  __GI___vsyslog_chk \
++  # rtld-stubbed-symbols
++
+ ifeq ($(have-ssp),yes)
+ # rtld is not built with the stack protector, so these references will
+ # go away in the rebuilds.
+diff --git a/include/bits/stdio2-decl.h b/include/bits/stdio2-decl.h
+index bbb052f192..d4e094a9ce 100644
+--- a/include/bits/stdio2-decl.h
++++ b/include/bits/stdio2-decl.h
+@@ -1 +1,8 @@
+ #include <libio/bits/stdio2-decl.h>
++
++#ifndef _ISOMAC
++libc_hidden_ldbl_proto (vfprintf)
++libc_hidden_proto (__fgets_unlocked_chk)
++libc_hidden_proto (__vasprintf_chk)
++libc_hidden_proto (__vfprintf_chk)
++#endif
+diff --git a/include/bits/string_fortified.h b/include/bits/string_fortified.h
+index 88bf073c9c..0cf0e76db1 100644
+--- a/include/bits/string_fortified.h
++++ b/include/bits/string_fortified.h
+@@ -1 +1,16 @@
++#ifndef _ISOMAC
++# if IS_IN(libc) && defined SHARED
++/* Redirect calls from __builtin_stpcpy_chk to internal __stpcpy when building
++   with fortify enable.  */
++__asm__ ("stpcpy = __GI___stpcpy");
++# endif
++
++/* Add the internal aliass attribute to symbol before they first usage on the
++   fortify wrappers.  */
++libc_hidden_builtin_proto (memcpy)
++libc_hidden_builtin_proto (mempcpy)
++libc_hidden_builtin_proto (memmove)
++libc_hidden_builtin_proto (memset)
++#endif
++
+ #include <string/bits/string_fortified.h>
+diff --git a/include/bits/syslog-decl.h b/include/bits/syslog-decl.h
+index 491a263777..762b289184 100644
+--- a/include/bits/syslog-decl.h
++++ b/include/bits/syslog-decl.h
+@@ -1 +1,5 @@
+ #include <misc/bits/syslog-decl.h>
++
++#ifndef _ISOMAC
++libc_hidden_ldbl_proto (__vsyslog_chk)
++#endif
+diff --git a/include/bits/unistd-decl.h b/include/bits/unistd-decl.h
+index 7fcbd272ac..dd6af7e4c8 100644
+--- a/include/bits/unistd-decl.h
++++ b/include/bits/unistd-decl.h
+@@ -1 +1,7 @@
+ #include <posix/bits/unistd-decl.h>
++
++#ifndef _ISOMAC
++libc_hidden_proto (__read_chk)
++libc_hidden_proto (__getdomainname_chk)
++libc_hidden_proto (__getlogin_r_chk)
++#endif
+diff --git a/include/bits/wchar2-decl.h b/include/bits/wchar2-decl.h
+index 00b1b93342..f3b8a8cf87 100644
+--- a/include/bits/wchar2-decl.h
++++ b/include/bits/wchar2-decl.h
+@@ -1 +1,6 @@
+ #include <wcsmbs/bits/wchar2-decl.h>
++
++#ifndef _ISOMAC
++libc_hidden_builtin_proto (__wmemset_chk)
++libc_hidden_proto (__wcrtomb_chk)
++#endif
+diff --git a/include/stdio.h b/include/stdio.h
+index 24f1652f19..3de3674b16 100644
+--- a/include/stdio.h
++++ b/include/stdio.h
+@@ -70,10 +70,12 @@ extern int __printf_chk (int, const char *, ...);
+ extern int __fprintf_chk (FILE *, int, const char *, ...);
+ extern int __vprintf_chk (int, const char *, __gnuc_va_list);
+ extern int __vfprintf_chk (FILE *, int, const char *, __gnuc_va_list);
++libc_hidden_proto (__vfprintf_chk)
+ extern char *__fgets_unlocked_chk (char *buf, size_t size, int n, FILE *fp);
+ extern char *__fgets_chk (char *buf, size_t size, int n, FILE *fp);
+ extern int __asprintf_chk (char **, int, const char *, ...) __THROW;
+ extern int __vasprintf_chk (char **, int, const char *, __gnuc_va_list) __THROW;
++libc_hidden_proto (__vasprintf_chk)
+ extern int __dprintf_chk (int, int, const char *, ...);
+ extern int __vdprintf_chk (int, int, const char *, __gnuc_va_list);
+ extern int __obstack_printf_chk (struct obstack *, int, const char *, ...)
+diff --git a/include/string.h b/include/string.h
+index 2a4788e8c2..b5c8d7cb3d 100644
+--- a/include/string.h
++++ b/include/string.h
+@@ -84,6 +84,7 @@ libc_hidden_proto (__mempcpy)
+ # define __mempcpy(dest, src, n) __builtin_mempcpy (dest, src, n)
+ #endif
+ libc_hidden_proto (__stpcpy)
++//#if !defined __NO_STRING_INLINES && !defined __clang__
+ #ifndef __NO_STRING_INLINES
+ # define __stpcpy(dest, src) __builtin_stpcpy (dest, src)
+ #endif
+diff --git a/include/unistd.h b/include/unistd.h
+index e241603b81..b042a485f9 100644
+--- a/include/unistd.h
++++ b/include/unistd.h
+@@ -32,10 +32,6 @@ libc_hidden_proto (readlinkat)
+ libc_hidden_proto (fsync)
+ libc_hidden_proto (fdatasync)
+ 
+-libc_hidden_proto (__read_chk)
+-libc_hidden_proto (__getdomainname_chk)
+-libc_hidden_proto (__getlogin_r_chk)
+-
+ /* Now define the internal interfaces.  */
+ extern int __access (const char *__name, int __type);
+ libc_hidden_proto (__access)
+diff --git a/include/wchar.h b/include/wchar.h
+index bf32625736..6abb0d2697 100644
+--- a/include/wchar.h
++++ b/include/wchar.h
+@@ -166,7 +166,6 @@ libc_hidden_proto (putwc)
+ 
+ libc_hidden_proto (mbrtowc)
+ libc_hidden_proto (wcrtomb)
+-libc_hidden_proto (__wcrtomb_chk)
+ 
+ extern int __wcscmp (const wchar_t *__s1, const wchar_t *__s2)
+      __THROW __attribute_pure__;
+diff --git a/libio/Makefile b/libio/Makefile
+index 385bee9b7d..b5d1eafe6b 100644
+--- a/libio/Makefile
++++ b/libio/Makefile
+@@ -66,6 +66,7 @@ routines_no_fortify += \
+   vswprintf \
+   vwprintf \
+   wprintf \
++  iovdprintf \
+   # routines_no_fortify
+ 
+ tests = tst_swprintf tst_wprintf tst_swscanf tst_wscanf tst_getwc tst_putwc   \
+diff --git a/misc/syslog.c b/misc/syslog.c
+index 4186292b24..9578dd7307 100644
+--- a/misc/syslog.c
++++ b/misc/syslog.c
+@@ -115,10 +115,12 @@ ldbl_hidden_def (___syslog_chk, __syslog_chk)
+ ldbl_strong_alias (___syslog_chk, __syslog_chk)
+ 
+ void
+-__vsyslog_chk (int pri, int flag, const char *fmt, va_list ap)
++___vsyslog_chk (int pri, int flag, const char *fmt, va_list ap)
+ {
+   __vsyslog_internal (pri, fmt, ap, (flag > 0) ? PRINTF_FORTIFY : 0);
+ }
++ldbl_hidden_def (___vsyslog_chk, __vsyslog_chk)
++ldbl_strong_alias (___vsyslog_chk, __vsyslog_chk)
+ 
+ void
+ __vsyslog_internal (int pri, const char *fmt, va_list ap,
+diff --git a/string/Makefile b/string/Makefile
+index cbdcff3706..dd44febc39 100644
+--- a/string/Makefile
++++ b/string/Makefile
+@@ -133,6 +133,7 @@ routines_no_fortify += \
+   strlcpy \
+   strncat \
+   strncpy \
++  bzero \
+   # routines_no_fortify
+ 
+ tests := \
+diff --git a/sysdeps/generic/symbol-hacks.h b/sysdeps/generic/symbol-hacks.h
+index 560116d575..e262a5c153 100644
+--- a/sysdeps/generic/symbol-hacks.h
++++ b/sysdeps/generic/symbol-hacks.h
+@@ -13,6 +13,21 @@ asm ("memcpy = __GI_memcpy");
+    callbacks (for instance pthread_once).  */
+ asm ("abort = __GI_abort");
+ 
++/* clang might generate the internal fortfify calls when it is enabled,
++   through the buitintin.  */
++asm ("__vfprintf_chk = __GI___vfprintf_chk");
++asm ("__vsprintf_chk = __GI___vsprintf_chk");
++asm ("__vsyslog_chk = __GI___vsyslog_chk");
++asm ("__memcpy_chk = __GI___memcpy_chk");
++asm ("__memmove_chk = __GI___memmove_chk");
++asm ("__memset_chk = __GI___memset_chk");
++asm ("__mempcpy_chk = __GI___mempcpy_chk");
++asm ("__stpcpy_chk = __GI___stpcpy_chk");
++asm ("__strcpy_chk = __GI___strcpy_chk");
++asm ("strcpy = __GI_strcpy");
++asm ("strncpy = __GI_strncpy");
++asm ("strcat = __GI_strcat");
++
+ /* Some targets do not use __stack_chk_fail_local.  In libc.so,
+    redirect __stack_chk_fail to a hidden reference
+    __stack_chk_fail_local, to avoid the PLT reference.
+diff --git a/sysdeps/unix/sysv/linux/not-cancel.h b/sysdeps/unix/sysv/linux/not-cancel.h
+index 2a7585b73f..7a5af5275a 100644
+--- a/sysdeps/unix/sysv/linux/not-cancel.h
++++ b/sysdeps/unix/sysv/linux/not-cancel.h
+@@ -29,16 +29,16 @@
+ #include <time.h>
+ 
+ /* Non cancellable open syscall.  */
+-__typeof (open) __open_nocancel;
++extern int __open_nocancel (const char *, int, ...);
+ 
+ /* Non cancellable open syscall (LFS version).  */
+-__typeof (open64) __open64_nocancel;
++extern int __open64_nocancel (const char *, int, ...);
+ 
+ /* Non cancellable openat syscall.  */
+-__typeof (openat) __openat_nocancel;
++extern int __openat_nocancel (int fd, const char *, int, ...);
+ 
+ /* Non cacellable openat syscall (LFS version).  */
+-__typeof (openat64) __openat64_nocancel;
++extern int __openat64_nocancel (int fd, const char *, int, ...);
+ 
+ /* Non cancellable read syscall.  */
+ __typeof (__read) __read_nocancel;
+-- 
+2.34.1
+

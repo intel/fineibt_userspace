@@ -1,0 +1,117 @@
+From e916197c9a4d31b633211eecbe778391a121d307 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Thu, 4 Apr 2024 15:49:32 +0200
+Subject: [PATCH 3/7] Add --enable-fineibt configure option
+
+---
+ configure                   | 12 ++++++++++++
+ configure.ac                |  6 ++++++
+ sysdeps/x86_64/Makefile     |  9 +++++++++
+ sysdeps/x86_64/configure    |  3 +++
+ sysdeps/x86_64/configure.ac |  2 ++
+ 5 files changed, 32 insertions(+)
+
+diff --git a/configure b/configure
+index d107d6f62f..79a5f6de90 100755
+--- a/configure
++++ b/configure
+@@ -810,6 +810,7 @@ enable_nscd
+ enable_pt_chown
+ enable_mathvec
+ enable_cet
++enable_fineibt
+ enable_scv
+ enable_fortify_source
+ with_cpu
+@@ -1485,6 +1486,8 @@ Optional Features:
+                           depends on architecture]
+   --enable-cet            enable Intel Control-flow Enforcement Technology
+                           (CET), x86 only
++  --enable-fineibt        Enable FineIBT to make Intel IBT more fine-grained,
++                          x86 only
+   --disable-scv           syscalls will not use scv instruction, even if the
+                           kernel supports it, powerpc only
+   --enable-fortify-source[=1|2|3]
+@@ -4690,6 +4693,15 @@ else $as_nop
+ fi
+ 
+ 
++# Check whether --enable-fineibt was given.
++if test ${enable_fineibt+y}
++then :
++  enableval=$enable_fineibt; enable_fineibt=$enableval
++else $as_nop
++  enable_fineibt=no
++fi
++
++
+ # Check whether --enable-scv was given.
+ if test ${enable_scv+y}
+ then :
+diff --git a/configure.ac b/configure.ac
+index ba94d3d94d..d8230cc5ab 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -383,6 +383,12 @@ AC_ARG_ENABLE([cet],
+ 	      [enable_cet=$enableval],
+ 	      [enable_cet=$libc_cv_compiler_default_cet])
+ 
++AC_ARG_ENABLE([fineibt],
++	      AS_HELP_STRING([--enable-fineibt],
++			     [Enable FineIBT to make Intel IBT more fine-grained, x86 only]),
++	      [enable_fineibt=$enableval],
++	      [enable_fineibt=no])
++
+ AC_ARG_ENABLE([scv],
+ 	      AS_HELP_STRING([--disable-scv],
+ 			     [syscalls will not use scv instruction, even if the kernel supports it, powerpc only]),
+diff --git a/sysdeps/x86_64/Makefile b/sysdeps/x86_64/Makefile
+index 0cdfe6e9ef..cc7515692a 100644
+--- a/sysdeps/x86_64/Makefile
++++ b/sysdeps/x86_64/Makefile
+@@ -476,6 +476,15 @@ generated += check-cet.out
+ endif # $(subdir) == elf
+ endif # $(enable) != no
+ 
++ifeq ($(enable-fineibt),yes)
++CFLAGS-.o += -fcf-protection=branch -mfineibt
++CFLAGS-.os += -fcf-protection=branch -mfineibt
++CFLAGS-.op += -fcf-protection=branch -mfineibt
++CFLAGS-.oS += -fcf-protection=branch -mfineibt
++asm-CPPFLAGS += -fcf-protection=branch -mfineibt -include cet.h
++# TODO: implement something similar to check-cet.awk above
++endif
++
+ do-tests-clean common-mostlyclean: tst-x86_64-1-clean
+ 
+ .PHONY: tst-x86_64-1-clean
+diff --git a/sysdeps/x86_64/configure b/sysdeps/x86_64/configure
+index 367927d140..64ef075192 100755
+--- a/sysdeps/x86_64/configure
++++ b/sysdeps/x86_64/configure
+@@ -134,6 +134,9 @@ fi
+ config_vars="$config_vars
+ enable-cet = $enable_cet"
+ 
++config_vars="$config_vars
++enable-fineibt = $enable_fineibt"
++
+ { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking -msse2avx" >&5
+ printf %s "checking -msse2avx... " >&6; }
+ if test ${libc_cv_cc_msse2avx+y}
+diff --git a/sysdeps/x86_64/configure.ac b/sysdeps/x86_64/configure.ac
+index dfcdecafa8..e2c60e8022 100644
+--- a/sysdeps/x86_64/configure.ac
++++ b/sysdeps/x86_64/configure.ac
+@@ -61,6 +61,8 @@ elif test $enable_cet = permissive; then
+ fi
+ LIBC_CONFIG_VAR([enable-cet], [$enable_cet])
+ 
++LIBC_CONFIG_VAR([enable-fineibt], [$enable_fineibt])
++
+ dnl Check if compiler supports -msse2avx
+ AC_CACHE_CHECK(-msse2avx, libc_cv_cc_msse2avx, [dnl
+ LIBC_TRY_CC_OPTION([-msse2avx],
+-- 
+2.34.1
+

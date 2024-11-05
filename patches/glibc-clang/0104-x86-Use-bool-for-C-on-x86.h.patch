@@ -1,0 +1,67 @@
+From b8fb51af3d2c74fca948942e7444e11f657cce8e Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 31 Mar 2022 10:40:02 -0300
+Subject: [PATCH 104/142] x86: Use bool for C++ on x86.h
+
+Not all compilers might define C99 _Bool type on C++ mode in old
+standard modes (clang does not define for -std=c++98).
+---
+ misc/sys/cdefs.h                                     | 7 +++++++
+ sysdeps/unix/sysv/linux/x86/bits/platform/features.h | 2 +-
+ sysdeps/x86/sys/platform/x86.h                       | 4 ++--
+ 3 files changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/misc/sys/cdefs.h b/misc/sys/cdefs.h
+index 7930f2f5b2..0ed65fc4f6 100644
+--- a/misc/sys/cdefs.h
++++ b/misc/sys/cdefs.h
+@@ -881,4 +881,11 @@ _Static_assert (0, "IEEE 128-bits long double requires redirection on this platf
+ # define __attribute_noclone__ /* Ignore.  */
+ #endif
+ 
++/* Not all compiles support _Bool type in C++.  */
++#ifdef	__cplusplus
++# define __BOOLEAN bool
++#else
++# define __BOOLEAN _Bool
++#endif
++
+ #endif	 /* sys/cdefs.h */
+diff --git a/sysdeps/unix/sysv/linux/x86/bits/platform/features.h b/sysdeps/unix/sysv/linux/x86/bits/platform/features.h
+index 7704febe92..0405ac51d9 100644
+--- a/sysdeps/unix/sysv/linux/x86/bits/platform/features.h
++++ b/sysdeps/unix/sysv/linux/x86/bits/platform/features.h
+@@ -28,7 +28,7 @@ enum
+   x86_feature_1_shstk		= 1U << 1
+ };
+ 
+-static __inline__ _Bool
++static __inline__ __BOOLEAN
+ x86_cpu_cet_active (unsigned int __index)
+ {
+ #ifdef __x86_64__
+diff --git a/sysdeps/x86/sys/platform/x86.h b/sysdeps/x86/sys/platform/x86.h
+index b8066ccc9f..8fc54b9b5c 100644
+--- a/sysdeps/x86/sys/platform/x86.h
++++ b/sysdeps/x86/sys/platform/x86.h
+@@ -30,7 +30,7 @@ __BEGIN_DECLS
+ extern const struct cpuid_feature *__x86_get_cpuid_feature_leaf (unsigned int)
+      __attribute__ ((pure));
+ 
+-static __inline__ _Bool
++static __inline__ __BOOLEAN
+ x86_cpu_present (unsigned int __index)
+ {
+   const struct cpuid_feature *__ptr = __x86_get_cpuid_feature_leaf
+@@ -43,7 +43,7 @@ x86_cpu_present (unsigned int __index)
+   return __ptr->cpuid_array[__reg] & (1 << __bit);
+ }
+ 
+-static __inline__ _Bool
++static __inline__ __BOOLEAN
+ x86_cpu_active (unsigned int __index)
+ {
+   if (__index == x86_cpu_IBT || __index == x86_cpu_SHSTK)
+-- 
+2.34.1
+

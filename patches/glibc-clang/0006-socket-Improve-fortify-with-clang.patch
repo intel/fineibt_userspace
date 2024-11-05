@@ -1,0 +1,122 @@
+From 8dee0c9fb36c0505452ec4542fbeaec3ca439db1 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 5 Dec 2023 10:38:44 -0300
+Subject: [PATCH 006/142] socket: Improve fortify with clang
+
+It improve fortify checks recv, recvfrom, poll, and ppoll.  The compile
+and runtime hecks have similar coverage as with GCC.
+
+Checked on aarch64, armhf, x86_64, and i686.
+---
+ io/bits/poll2.h       | 29 +++++++++++++++++++++--------
+ socket/bits/socket2.h | 20 ++++++++++++++++----
+ 2 files changed, 37 insertions(+), 12 deletions(-)
+
+diff --git a/io/bits/poll2.h b/io/bits/poll2.h
+index 6152a8c5e4..24ec1056eb 100644
+--- a/io/bits/poll2.h
++++ b/io/bits/poll2.h
+@@ -33,8 +33,13 @@ extern int __REDIRECT (__poll_chk_warn, (struct pollfd *__fds, nfds_t __nfds,
+ 		       __poll_chk)
+   __warnattr ("poll called with fds buffer too small file nfds entries");
+ 
+-__fortify_function __fortified_attr_access (__write_only__, 1, 2) int
+-poll (struct pollfd *__fds, nfds_t __nfds, int __timeout)
++__fortify_function __fortified_attr_access (__write_only__, 1, 2)
++__attribute_overloadable__ int
++poll (__fortify_clang_overload_arg (struct pollfd *, ,__fds), nfds_t __nfds,
++      int __timeout)
++     __fortify_clang_warning_only_if_bos_lt2 (__nfds, __fds, sizeof (*__fds),
++					      "poll called with fds buffer "
++					      "too small file nfds entries")
+ {
+   return __glibc_fortify (poll, __nfds, sizeof (*__fds),
+ 			  __glibc_objsize (__fds),
+@@ -58,9 +63,13 @@ extern int __REDIRECT (__ppoll64_chk_warn, (struct pollfd *__fds, nfds_t __n,
+ 		       __ppoll64_chk)
+   __warnattr ("ppoll called with fds buffer too small file nfds entries");
+ 
+-__fortify_function __fortified_attr_access (__write_only__, 1, 2) int
+-ppoll (struct pollfd *__fds, nfds_t __nfds, const struct timespec *__timeout,
+-       const __sigset_t *__ss)
++__fortify_function __fortified_attr_access (__write_only__, 1, 2)
++__attribute_overloadable__ int
++ppoll (__fortify_clang_overload_arg (struct pollfd *, ,__fds), nfds_t __nfds,
++       const struct timespec *__timeout, const __sigset_t *__ss)
++     __fortify_clang_warning_only_if_bos_lt2 (__nfds, __fds, sizeof (*__fds),
++					      "ppoll called with fds buffer "
++					      "too small file nfds entries")
+ {
+   return __glibc_fortify (ppoll64, __nfds, sizeof (*__fds),
+ 			  __glibc_objsize (__fds),
+@@ -81,9 +90,13 @@ extern int __REDIRECT (__ppoll_chk_warn, (struct pollfd *__fds, nfds_t __nfds,
+ 		       __ppoll_chk)
+   __warnattr ("ppoll called with fds buffer too small file nfds entries");
+ 
+-__fortify_function __fortified_attr_access (__write_only__, 1, 2) int
+-ppoll (struct pollfd *__fds, nfds_t __nfds, const struct timespec *__timeout,
+-       const __sigset_t *__ss)
++__fortify_function __fortified_attr_access (__write_only__, 1, 2)
++__attribute_overloadable__ int
++ppoll (__fortify_clang_overload_arg (struct pollfd *, ,__fds), nfds_t __nfds,
++       const struct timespec *__timeout, const __sigset_t *__ss)
++     __fortify_clang_warning_only_if_bos_lt2 (__nfds, __fds, sizeof (*__fds),
++					      "ppoll called with fds buffer "
++					      "too small file nfds entries")
+ {
+   return __glibc_fortify (ppoll, __nfds, sizeof (*__fds),
+ 			  __glibc_objsize (__fds),
+diff --git a/socket/bits/socket2.h b/socket/bits/socket2.h
+index a88cb64370..04780f320e 100644
+--- a/socket/bits/socket2.h
++++ b/socket/bits/socket2.h
+@@ -30,14 +30,20 @@ extern ssize_t __REDIRECT (__recv_chk_warn,
+      __warnattr ("recv called with bigger length than size of destination "
+ 		 "buffer");
+ 
+-__fortify_function ssize_t
+-recv (int __fd, void *__buf, size_t __n, int __flags)
++__fortify_function __attribute_overloadable__ ssize_t
++recv (int __fd, __fortify_clang_overload_arg0 (void *, ,__buf), size_t __n,
++      int __flags)
++     __fortify_clang_warning_only_if_bos0_lt (__n, __buf,
++					      "recv called with bigger length than "
++					      "size of destination buffer")
+ {
+   size_t sz = __glibc_objsize0 (__buf);
+   if (__glibc_safe_or_unknown_len (__n, sizeof (char), sz))
+     return __recv_alias (__fd, __buf, __n, __flags);
++#if !__fortify_use_clang
+   if (__glibc_unsafe_len (__n, sizeof (char), sz))
+     return __recv_chk_warn (__fd, __buf, __n, sz, __flags);
++#endif
+   return __recv_chk (__fd, __buf, __n, sz, __flags);
+ }
+ 
+@@ -57,15 +63,21 @@ extern ssize_t __REDIRECT (__recvfrom_chk_warn,
+      __warnattr ("recvfrom called with bigger length than size of "
+ 		 "destination buffer");
+ 
+-__fortify_function ssize_t
+-recvfrom (int __fd, void *__restrict __buf, size_t __n, int __flags,
++__fortify_function __attribute_overloadable__ ssize_t
++recvfrom (int __fd, __fortify_clang_overload_arg0 (void *, __restrict, __buf),
++	  size_t __n, int __flags,
+ 	  __SOCKADDR_ARG __addr, socklen_t *__restrict __addr_len)
++     __fortify_clang_warning_only_if_bos0_lt (__n, __buf,
++					      "recvfrom called with bigger length "
++					      "than size of destination buffer")
+ {
+   size_t sz = __glibc_objsize0 (__buf);
+   if (__glibc_safe_or_unknown_len (__n, sizeof (char), sz))
+     return __recvfrom_alias (__fd, __buf, __n, __flags, __addr, __addr_len);
++#if !__fortify_use_clang
+   if (__glibc_unsafe_len (__n, sizeof (char), sz))
+     return __recvfrom_chk_warn (__fd, __buf, __n, sz, __flags, __addr,
+ 				__addr_len);
++#endif
+   return __recvfrom_chk (__fd, __buf, __n, sz, __flags, __addr, __addr_len);
+ }
+-- 
+2.34.1
+

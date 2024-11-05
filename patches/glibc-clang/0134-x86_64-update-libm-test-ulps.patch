@@ -1,0 +1,26 @@
+From 55f60dad7faafe3676c8cb926a081d99dc686d6b Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 30 Jan 2024 15:11:15 -0300
+Subject: [PATCH 134/142] x86_64: update libm test ulps
+
+From clang.
+---
+ sysdeps/x86_64/fpu/libm-test-ulps | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sysdeps/x86_64/fpu/libm-test-ulps b/sysdeps/x86_64/fpu/libm-test-ulps
+index e0015347d0..f175669d21 100644
+--- a/sysdeps/x86_64/fpu/libm-test-ulps
++++ b/sysdeps/x86_64/fpu/libm-test-ulps
+@@ -657,7 +657,7 @@ ldouble: 1
+ Function: "cbrt_upward":
+ double: 5
+ float: 1
+-float128: 1
++float128: 2
+ ldouble: 1
+ 
+ Function: "cbrt_vlen16":
+-- 
+2.34.1
+

@@ -1,0 +1,26 @@
+From c93082545716dac16b9c408e6069f07e412d4409 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Tue, 6 Feb 2024 16:52:45 -0300
+Subject: [PATCH 140/142] bench-malloc-thread: Add libm for powf
+
+The bench-malloc-thread.c:63 does use powf and compiler might not
+optimzie it away.
+---
+ benchtests/Makefile | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/benchtests/Makefile b/benchtests/Makefile
+index 4fb9bae023..dca40645fb 100644
+--- a/benchtests/Makefile
++++ b/benchtests/Makefile
+@@ -307,6 +307,7 @@ $(addprefix $(objpfx)bench-,$(bench-pthread)): $(thread-library-benchtests)
+ $(addprefix $(objpfx)bench-,$(bench-malloc)): $(thread-library-benchtests)
+ $(addprefix $(objpfx)bench-,pthread-locks): $(libm-benchtests)
+ $(addprefix $(objpfx)bench-,pthread-mutex-locks): $(libm-benchtests)
++$(addprefix $(objpfx)bench-,malloc-thread): $(libm-benchtests)
+ 
+ 
+ 
+-- 
+2.34.1
+

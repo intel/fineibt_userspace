@@ -1,0 +1,25 @@
+From 7bbd68d08a4e3180925d899f19507a9d37c833c6 Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Wed, 20 Dec 2023 14:00:29 -0300
+Subject: [PATCH 128/142] gmon: Remove ununsed LDFLAGS-tst-profile-stati
+
+---
+ gmon/Makefile | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/gmon/Makefile b/gmon/Makefile
+index 4e1a4a309c..f26c8943b2 100644
+--- a/gmon/Makefile
++++ b/gmon/Makefile
+@@ -30,8 +30,6 @@ tests	= tst-sprofil tst-gmon tst-mcount-overflow tst-mcleanup
+ ifeq ($(build-profile),yes)
+ tests	+= tst-profile-static
+ tests-static	+= tst-profile-static
+-
+-LDFLAGS-tst-profile-static = -profile
+ endif
+ 
+ tests += tst-gmon-static
+-- 
+2.34.1
+

@@ -1,0 +1,75 @@
+From bb27632e8ccbdbbf51bfc4670703fb53cd06e1bc Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Thu, 28 Sep 2023 14:17:54 -0300
+Subject: [PATCH 060/142] riscv: Do not use cfi_label when building with clang
+
+The .cfi_label is a gas extension not supported by clang.  From a
+ziglang discussion [1], it seems that it is not really required.
+
+[1] https://github.com/ziglang/zig/issues/3340
+---
+ sysdeps/generic/sysdep.h               | 6 ++++++
+ sysdeps/riscv/start.S                  | 2 +-
+ sysdeps/unix/sysv/linux/riscv/clone.S  | 2 +-
+ sysdeps/unix/sysv/linux/riscv/clone3.S | 2 +-
+ 4 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/sysdeps/generic/sysdep.h b/sysdeps/generic/sysdep.h
+index c47e53d3d8..c663912b8e 100644
+--- a/sysdeps/generic/sysdep.h
++++ b/sysdeps/generic/sysdep.h
+@@ -55,6 +55,12 @@
+ # define cfi_window_save		.cfi_window_save
+ # define cfi_personality(enc, exp)	.cfi_personality enc, exp
+ # define cfi_lsda(enc, exp)		.cfi_lsda enc, exp
++/* .cfi_label is a gas extension not supported by clang.  */
++# ifndef __clang__
++#  define cfi_label(label)		.cfi_label label
++# else
++#  define cfi_label(label)
++# endif
+ 
+ #else /* ! ASSEMBLER */
+ 
+diff --git a/sysdeps/riscv/start.S b/sysdeps/riscv/start.S
+index ede186ef23..bff535be9d 100644
+--- a/sysdeps/riscv/start.S
++++ b/sysdeps/riscv/start.S
+@@ -45,7 +45,7 @@
+ ENTRY (ENTRY_POINT)
+ 	/* Terminate call stack by noting ra is undefined.  Use a dummy
+ 	   .cfi_label to force starting the FDE.  */
+-	.cfi_label .Ldummy
++	cfi_label (.Ldummy)
+ 	cfi_undefined (ra)
+ 	call  load_gp
+ 	mv    a5, a0  /* rtld_fini.  */
+diff --git a/sysdeps/unix/sysv/linux/riscv/clone.S b/sysdeps/unix/sysv/linux/riscv/clone.S
+index b9c843eb1d..f815fd6160 100644
+--- a/sysdeps/unix/sysv/linux/riscv/clone.S
++++ b/sysdeps/unix/sysv/linux/riscv/clone.S
+@@ -74,7 +74,7 @@ ENTRY (__thread_start)
+ L (thread_start):
+ 	/* Terminate call stack by noting ra is undefined.  Use a dummy
+ 	   .cfi_label to force starting the FDE.  */
+-	.cfi_label .Ldummy
++	cfi_label (.Ldummy)
+ 	cfi_undefined (ra)
+ 
+ 	/* Restore the arg for user's function.  */
+diff --git a/sysdeps/unix/sysv/linux/riscv/clone3.S b/sysdeps/unix/sysv/linux/riscv/clone3.S
+index 29264be054..6a81a56519 100644
+--- a/sysdeps/unix/sysv/linux/riscv/clone3.S
++++ b/sysdeps/unix/sysv/linux/riscv/clone3.S
+@@ -62,7 +62,7 @@ ENTRY(__thread_start_clone3)
+ L(thread_start):
+ 	/* Terminate call stack by noting ra is undefined.  Use a dummy
+ 	   .cfi_label to force starting the FDE.  */
+-	.cfi_label .Ldummy
++	cfi_label (.Ldummy)
+ 	cfi_undefined (ra)
+ 
+ 	/* Restore the arg for user's function and call the user's
+-- 
+2.34.1
+

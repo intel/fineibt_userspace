@@ -1,0 +1,34 @@
+--- a/benchspec/CPU/557.xz_r/src/liblzma/common/filter_decoder.c
++++ b/benchspec/CPU/557.xz_r/src/liblzma/common/filter_decoder.c
+@@ -117,12 +117,12 @@ static const lzma_filter_decoder decoders[] = {
+ };
+ 
+ 
+-static const lzma_filter_decoder *
++static const lzma_filter_coder *
+ decoder_find(lzma_vli id)
+ {
+ 	for (size_t i = 0; i < ARRAY_SIZE(decoders); ++i)
+ 		if (decoders[i].id == id)
+-			return decoders + i;
++			return (lzma_filter_coder *)(decoders + i);
+ 
+ 	return NULL;
+ }
+--- a/benchspec/CPU/557.xz_r/src/liblzma/common/filter_encoder.c
++++ b/benchspec/CPU/557.xz_r/src/liblzma/common/filter_encoder.c
+@@ -150,12 +150,12 @@ static const lzma_filter_encoder encoders[] = {
+ };
+ 
+ 
+-static const lzma_filter_encoder *
++static const lzma_filter_coder *
+ encoder_find(lzma_vli id)
+ {
+ 	for (size_t i = 0; i < ARRAY_SIZE(encoders); ++i)
+ 		if (encoders[i].id == id)
+-			return encoders + i;
++			return (lzma_filter_coder *)(encoders + i);
+ 
+ 	return NULL;
+ }

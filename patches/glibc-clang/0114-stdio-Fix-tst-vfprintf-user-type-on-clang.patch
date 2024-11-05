@@ -1,0 +1,26 @@
+From 0974bec8f4835d84933399a914fb18e71cfa2efc Mon Sep 17 00:00:00 2001
+From: Adhemerval Zanella <adhemerval.zanella@linaro.org>
+Date: Fri, 1 Apr 2022 23:51:04 -0300
+Subject: [PATCH 114/142] stdio: Fix tst-vfprintf-user-type on clang
+
+clang always evaluate the pointer alias compasion as false.
+---
+ stdio-common/tst-vfprintf-user-type.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/stdio-common/tst-vfprintf-user-type.c b/stdio-common/tst-vfprintf-user-type.c
+index de2b9d17ee..03504f4392 100644
+--- a/stdio-common/tst-vfprintf-user-type.c
++++ b/stdio-common/tst-vfprintf-user-type.c
+@@ -183,7 +183,7 @@ do_test (void)
+ #else
+   extern int asprintf_alias (char **, const char *, ...) __asm__ ("asprintf");
+ #endif
+-  TEST_VERIFY (asprintf_alias == asprintf);
++  TEST_VERIFY ((uintptr_t) asprintf_alias == (uintptr_t) asprintf);
+   char *str = NULL;
+   TEST_VERIFY (asprintf_alias (&str, "[[%P]]", 123L, 456.0) >= 0);
+   TEST_COMPARE_STRING (str, "[[(123, 456.000000)]]");
+-- 
+2.34.1
+
