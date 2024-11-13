@@ -1,0 +1,45 @@
+From 04acfc7f15b22864e660d9add61a8c2b6dae8061 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Tue, 9 Apr 2024 16:10:27 +0200
+Subject: [PATCH 9/9] FineIBT: Comment out some asserts. These DO need to be
+ fixed for security later.
+
+---
+ llvm/lib/Target/X86/X86FineIBT.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/llvm/lib/Target/X86/X86FineIBT.cpp b/llvm/lib/Target/X86/X86FineIBT.cpp
+index ad7aac59cd20..6b7e7d45f0f3 100644
+--- a/llvm/lib/Target/X86/X86FineIBT.cpp
++++ b/llvm/lib/Target/X86/X86FineIBT.cpp
+@@ -374,6 +374,7 @@ bool X86FineIBTPass::addHashSets(
+       if (!Hash) {
+         llvm::errs() << "X86FineIBT: Missing CFI type ID in " << MF.getName()
+                      << " (instruction " << I << ")\n";
++        continue;
+         llvm_unreachable("missing CFI type id");
+       }
+ 
+@@ -473,7 +474,7 @@ bool X86FineIBTPass::runOnMachineFunction(MachineFunction &MF) {
+     // in the case of indirect jump) and add ENDBR instruction.
+     if (MBB.hasAddressTaken()) {
+       errs() << "X86FineIBT: Addr-taken BB\n";
+-      llvm_unreachable("Addr-taken BB");
++      //llvm_unreachable("Addr-taken BB");
+       Changed |= addENDBR(MBB, MBB.begin());
+     }
+ 
+@@ -517,8 +518,8 @@ bool X86FineIBTPass::runOnMachineFunction(MachineFunction &MF) {
+       for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
+         if (!I->isEHLabel())
+           continue;
+-          errs() << "X86FineIBT: EH-pad3 " << *I << "\n";
+-          llvm_unreachable("EH-pad3");
++        errs() << "X86FineIBT: EH-pad3 " << *I << "\n";
++        //llvm_unreachable("EH-pad3");
+         Changed |= addENDBR(MBB, std::next(I));
+         break;
+       }
+-- 
+2.34.1
+

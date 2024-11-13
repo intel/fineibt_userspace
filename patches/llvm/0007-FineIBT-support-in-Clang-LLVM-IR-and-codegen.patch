@@ -1,0 +1,1813 @@
+From 41ab6f6f35a30ae66c6ab94d87ed25c380aa9352 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Thu, 9 Mar 2023 14:24:09 -0800
+Subject: [PATCH 7/9] FineIBT support in Clang, LLVM IR and codegen.
+
+This reuses kCFI type infrastructure.
+---
+ clang/include/clang/AST/Type.h                |  14 +-
+ clang/include/clang/AST/TypeProperties.td     |   7 +-
+ clang/include/clang/Basic/Attr.td             |   6 +
+ clang/include/clang/Basic/AttrDocs.td         |  22 +
+ clang/include/clang/Basic/CodeGenOptions.def  |   2 +
+ .../clang/Basic/DiagnosticSemaKinds.td        |   3 +
+ clang/include/clang/Basic/LangOptions.def     |   1 +
+ clang/include/clang/Basic/TargetInfo.h        |   4 +
+ clang/include/clang/CodeGen/CGFunctionInfo.h  |  10 +-
+ clang/include/clang/Driver/Options.td         |   3 +
+ clang/lib/AST/ASTContext.cpp                  |   2 +
+ clang/lib/AST/ASTStructuralEquivalence.cpp    |   2 +
+ clang/lib/AST/TypePrinter.cpp                 |   3 +
+ clang/lib/Basic/TargetInfo.cpp                |   6 +
+ clang/lib/Basic/Targets/X86.h                 |   7 +
+ clang/lib/CodeGen/CGCall.cpp                  |  10 +-
+ clang/lib/CodeGen/CodeGenFunction.cpp         |   2 +-
+ clang/lib/CodeGen/CodeGenFunction.h           |   2 +-
+ clang/lib/CodeGen/CodeGenModule.cpp           |  23 +-
+ clang/lib/Driver/ToolChains/Clang.cpp         |   2 +
+ clang/lib/Frontend/CompilerInvocation.cpp     |  16 +-
+ clang/lib/Headers/cet.h                       |   6 +-
+ clang/lib/Sema/SemaDeclAttr.cpp               |  10 +
+ clang/lib/Sema/SemaType.cpp                   |  22 +
+ compiler-rt/lib/builtins/crtbegin.c           |  10 +-
+ llvm/include/llvm/BinaryFormat/ELF.h          |   1 +
+ llvm/include/llvm/Bitcode/LLVMBitCodes.h      |   1 +
+ llvm/include/llvm/CodeGen/MachineInstr.h      |   9 +
+ llvm/include/llvm/CodeGen/Passes.h            |   4 +
+ llvm/include/llvm/IR/Attributes.td            |   3 +
+ llvm/include/llvm/IR/Function.h               |   5 +
+ llvm/include/llvm/IR/InstrTypes.h             |   3 +
+ llvm/include/llvm/InitializePasses.h          |   1 +
+ llvm/lib/Analysis/TargetLibraryInfo.cpp       |   2 +-
+ llvm/lib/Bitcode/Writer/BitcodeWriter.cpp     |   2 +
+ llvm/lib/Target/X86/CMakeLists.txt            |   2 +
+ llvm/lib/Target/X86/FineIBT.cpp               | 277 +++++++++
+ .../Target/X86/MCTargetDesc/X86AsmBackend.cpp |   3 +
+ .../lib/Target/X86/MCTargetDesc/X86BaseInfo.h |   4 +
+ llvm/lib/Target/X86/X86.h                     |   4 +
+ llvm/lib/Target/X86/X86AsmPrinter.cpp         |   5 +-
+ llvm/lib/Target/X86/X86FineIBT.cpp            | 528 ++++++++++++++++++
+ .../Target/X86/X86IndirectBranchTracking.cpp  |   6 +
+ llvm/lib/Target/X86/X86MCInstLower.cpp        |   6 +
+ llvm/lib/Target/X86/X86TargetMachine.cpp      |   5 +
+ llvm/lib/Transforms/Utils/CodeExtractor.cpp   |   1 +
+ 46 files changed, 1047 insertions(+), 20 deletions(-)
+ create mode 100644 llvm/lib/Target/X86/FineIBT.cpp
+ create mode 100644 llvm/lib/Target/X86/X86FineIBT.cpp
+
+diff --git a/clang/include/clang/AST/Type.h b/clang/include/clang/AST/Type.h
+index 6384cf9420b8..add12eacca74 100644
+--- a/clang/include/clang/AST/Type.h
++++ b/clang/include/clang/AST/Type.h
+@@ -3924,6 +3924,7 @@ public:
+     };
+     enum { NoCfCheckMask = 0x800 };
+     enum { CmseNSCallMask = 0x1000 };
++    enum { CoarseCfCheckMask = 0x2000 };
+     uint16_t Bits = CC_C;
+ 
+     ExtInfo(unsigned Bits) : Bits(static_cast<uint16_t>(Bits)) {}
+@@ -3933,14 +3934,15 @@ public:
+     // have all the elements (when reading an AST file for example).
+     ExtInfo(bool noReturn, bool hasRegParm, unsigned regParm, CallingConv cc,
+             bool producesResult, bool noCallerSavedRegs, bool NoCfCheck,
+-            bool cmseNSCall) {
++            bool cmseNSCall, bool CoarseCfCheck) {
+       assert((!hasRegParm || regParm < 7) && "Invalid regparm value");
+       Bits = ((unsigned)cc) | (noReturn ? NoReturnMask : 0) |
+              (producesResult ? ProducesResultMask : 0) |
+              (noCallerSavedRegs ? NoCallerSavedRegsMask : 0) |
+              (hasRegParm ? ((regParm + 1) << RegParmOffset) : 0) |
+              (NoCfCheck ? NoCfCheckMask : 0) |
+-             (cmseNSCall ? CmseNSCallMask : 0);
++             (cmseNSCall ? CmseNSCallMask : 0) |
++	     (CoarseCfCheck ? CoarseCfCheckMask : 0);
+     }
+ 
+     // Constructor with all defaults. Use when for example creating a
+@@ -3956,6 +3958,7 @@ public:
+     bool getCmseNSCall() const { return Bits & CmseNSCallMask; }
+     bool getNoCallerSavedRegs() const { return Bits & NoCallerSavedRegsMask; }
+     bool getNoCfCheck() const { return Bits & NoCfCheckMask; }
++    bool getCoarseCfCheck() const { return Bits & CoarseCfCheckMask; }
+     bool getHasRegParm() const { return ((Bits & RegParmMask) >> RegParmOffset) != 0; }
+ 
+     unsigned getRegParm() const {
+@@ -4012,6 +4015,13 @@ public:
+         return ExtInfo(Bits & ~NoCfCheckMask);
+     }
+ 
++    ExtInfo withCoarseCfCheck(bool coarseCfCheck) const {
++      if (coarseCfCheck)
++        return ExtInfo(Bits | CoarseCfCheckMask);
++      else
++        return ExtInfo(Bits & ~CoarseCfCheckMask);
++    }
++
+     ExtInfo withRegParm(unsigned RegParm) const {
+       assert(RegParm < 7 && "Invalid regparm value");
+       return ExtInfo((Bits & ~RegParmMask) |
+diff --git a/clang/include/clang/AST/TypeProperties.td b/clang/include/clang/AST/TypeProperties.td
+index 682c869b0c58..09a0d0442dfa 100644
+--- a/clang/include/clang/AST/TypeProperties.td
++++ b/clang/include/clang/AST/TypeProperties.td
+@@ -284,6 +284,9 @@ let Class = FunctionType in {
+   def : Property<"noCfCheck", Bool> {
+     let Read = [{ node->getExtInfo().getNoCfCheck() }];
+   }
++  def : Property<"coarseCfCheck", Bool> {
++    let Read = [{ node->getExtInfo().getCoarseCfCheck() }];
++  }
+   def : Property<"cmseNSCall", Bool> {
+     let Read = [{ node->getExtInfo().getCmseNSCall() }];
+   }
+@@ -294,7 +297,7 @@ let Class = FunctionNoProtoType in {
+     auto extInfo = FunctionType::ExtInfo(noReturn, hasRegParm, regParm,
+                                          callingConvention, producesResult,
+                                          noCallerSavedRegs, noCfCheck,
+-                                         cmseNSCall);
++                                         cmseNSCall, coarseCfCheck);
+     return ctx.getFunctionNoProtoType(returnType, extInfo);
+   }]>;
+ }
+@@ -331,7 +334,7 @@ let Class = FunctionProtoType in {
+     auto extInfo = FunctionType::ExtInfo(noReturn, hasRegParm, regParm,
+                                          callingConvention, producesResult,
+                                          noCallerSavedRegs, noCfCheck,
+-                                         cmseNSCall);
++                                         cmseNSCall, coarseCfCheck);
+     FunctionProtoType::ExtProtoInfo epi;
+     epi.ExtInfo = extInfo;
+     epi.Variadic = variadic;
+diff --git a/clang/include/clang/Basic/Attr.td b/clang/include/clang/Basic/Attr.td
+index 58838b01b4fd..4a73f11fc5c5 100644
+--- a/clang/include/clang/Basic/Attr.td
++++ b/clang/include/clang/Basic/Attr.td
+@@ -3307,6 +3307,12 @@ def AnyX86NoCfCheck : DeclOrTypeAttr, TargetSpecificAttr<TargetAnyX86>{
+   let Documentation = [AnyX86NoCfCheckDocs];
+ }
+ 
++def AnyX86CoarseCfCheck : DeclOrTypeAttr, TargetSpecificAttr<TargetAnyX86>{
++  let Spellings = [GCC<"coarsecf_check">];
++  let Subjects = SubjectList<[FunctionLike]>;
++  let Documentation = [AnyX86CoarseCfCheckDocs];
++}
++
+ def X86ForceAlignArgPointer : InheritableAttr, TargetSpecificAttr<TargetAnyX86> {
+   let Spellings = [GCC<"force_align_arg_pointer">];
+   // Technically, this appertains to a FunctionDecl, but the target-specific
+diff --git a/clang/include/clang/Basic/AttrDocs.td b/clang/include/clang/Basic/AttrDocs.td
+index e02a1201e2ad..9f4056480652 100644
+--- a/clang/include/clang/Basic/AttrDocs.td
++++ b/clang/include/clang/Basic/AttrDocs.td
+@@ -5017,6 +5017,28 @@ pointer (by adding nocf_check prefix to the indirect-call instruction).
+ }];
+ }
+ 
++def AnyX86CoarseCfCheckDocs : Documentation {
++  let Category = DocCatFunction;
++  let Content = [{
++Jump Oriented Programming attacks rely on tampering with addresses used by
++indirect call / jmp, e.g. redirect control-flow to non-programmer
++intended bytes in the binary.
++X86 Supports Indirect Branch Tracking (IBT) as part of Control-Flow
++Enforcement Technology (CET). LLVM Supports Fine Indirect Branch Tracking,
++which extends the restrictions imposed by CET with additional prototype
++matching between function pointers and prototypes. The ``coarsecf_check`` has
++two roles:
++1 - Appertains to a function - add ENDBR instruction at the beginning of a the
++function without adding Fine IBT checks, this will prevent the creation of
++FineIBT instrumentation which does the prototype checking. This is specially
++useful for making the function compatible with non-fine-ibt-enabled code that
++may invoke this function (like callbacks from a coarse-grained library into a
++fine-grained object).
++2 - Appertains to a function pointer - do not add code instrumentation which
++prepares prototype checking to indirect calls.
++}];
++}
++
+ def SwiftCallDocs : Documentation {
+   let Category = DocCatVariable;
+   let Content = [{
+diff --git a/clang/include/clang/Basic/CodeGenOptions.def b/clang/include/clang/Basic/CodeGenOptions.def
+index 7c0bfe328496..f970f565e9d3 100644
+--- a/clang/include/clang/Basic/CodeGenOptions.def
++++ b/clang/include/clang/Basic/CodeGenOptions.def
+@@ -106,6 +106,8 @@ CODEGENOPT(CFProtectionReturn , 1, 0) ///< if -fcf-protection is
+                                       ///< set to full or return.
+ CODEGENOPT(CFProtectionBranch , 1, 0) ///< if -fcf-protection is
+                                       ///< set to full or branch.
++CODEGENOPT(FineIBT , 1, 0)   ///< if -cf-protection is set
++                                      ///< to fine-grained.
+ CODEGENOPT(FunctionReturnThunks, 1, 0) ///< -mfunction-return={keep|thunk-extern}
+ CODEGENOPT(IndirectBranchCSPrefix, 1, 0) ///< if -mindirect-branch-cs-prefix
+                                          ///< is set.
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index ef8c111b1d8c..0af3e0916d88 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3527,6 +3527,9 @@ def warn_attribute_ignored_on_inline :
+ def warn_nocf_check_attribute_ignored :
+   Warning<"'nocf_check' attribute ignored; use -fcf-protection to enable the attribute">,
+   InGroup<IgnoredAttributes>;
++def warn_coarsecf_check_attribute_ignored :
++  Warning<"'coarsecf_check' attribute ignored; use -fcf-protection w -mfineibt to enable the attribute">,
++  InGroup<IgnoredAttributes>;
+ def warn_attribute_after_definition_ignored : Warning<
+   "attribute %0 after definition is ignored">,
+    InGroup<IgnoredAttributes>;
+diff --git a/clang/include/clang/Basic/LangOptions.def b/clang/include/clang/Basic/LangOptions.def
+index 4942dcaa086e..58d1a20ab7c3 100644
+--- a/clang/include/clang/Basic/LangOptions.def
++++ b/clang/include/clang/Basic/LangOptions.def
+@@ -344,6 +344,7 @@ BENIGN_LANGOPT(CompatibilityQualifiedIdBlockParamTypeChecking, 1, 0,
+ LANGOPT(ObjCDisableDirectMethodsForTesting, 1, 0,
+         "Disable recognition of objc_direct methods")
+ LANGOPT(CFProtectionBranch , 1, 0, "Control-Flow Branch Protection enabled")
++LANGOPT(FineIBT , 1, 0, "Control-Flow Fine-grained Branch Protection enabled")
+ LANGOPT(FakeAddressSpaceMap , 1, 0, "OpenCL fake address space map")
+ ENUM_LANGOPT(AddressSpaceMapMangling , AddrSpaceMapMangling, 2, ASMM_Target, "OpenCL address space map mangling mode")
+ LANGOPT(IncludeDefaultHeader, 1, 0, "Include default header file for OpenCL")
+diff --git a/clang/include/clang/Basic/TargetInfo.h b/clang/include/clang/Basic/TargetInfo.h
+index 3eb23ebdacf0..aa540fc1b50d 100644
+--- a/clang/include/clang/Basic/TargetInfo.h
++++ b/clang/include/clang/Basic/TargetInfo.h
+@@ -1639,6 +1639,10 @@ public:
+   virtual bool
+   checkCFProtectionBranchSupported(DiagnosticsEngine &Diags) const;
+ 
++  /// Check if the target supports CFProtection branch + FineIBT.
++  virtual bool
++  checkCFProtectionFineSupported(DiagnosticsEngine &Diags) const;
++
+   /// Check if the target supports CFProtection return.
+   virtual bool
+   checkCFProtectionReturnSupported(DiagnosticsEngine &Diags) const;
+diff --git a/clang/include/clang/CodeGen/CGFunctionInfo.h b/clang/include/clang/CodeGen/CGFunctionInfo.h
+index e388901b8a50..f246c6821f93 100644
+--- a/clang/include/clang/CodeGen/CGFunctionInfo.h
++++ b/clang/include/clang/CodeGen/CGFunctionInfo.h
+@@ -595,6 +595,9 @@ class CGFunctionInfo final
+   /// Whether this function has nocf_check attribute.
+   unsigned NoCfCheck : 1;
+ 
++  /// Whether this function has coarsecf_check attribute.
++  unsigned CoarseCfCheck : 1;
++
+   /// Log 2 of the maximum vector width.
+   unsigned MaxVectorWidth : 4;
+ 
+@@ -685,6 +688,9 @@ public:
+   /// Whether this function has nocf_check attribute.
+   bool isNoCfCheck() const { return NoCfCheck; }
+ 
++  /// Whether this function has coarsecf_check attribute.
++  bool isCoarseCfCheck() const { return CoarseCfCheck; }
++
+   /// getASTCallingConvention() - Return the AST-specified calling
+   /// convention.
+   CallingConv getASTCallingConvention() const {
+@@ -711,7 +717,7 @@ public:
+     return FunctionType::ExtInfo(isNoReturn(), getHasRegParm(), getRegParm(),
+                                  getASTCallingConvention(), isReturnsRetained(),
+                                  isNoCallerSavedRegs(), isNoCfCheck(),
+-                                 isCmseNSCall());
++                                 isCmseNSCall(), isCoarseCfCheck());
+   }
+ 
+   CanQualType getReturnType() const { return getArgsBuffer()[0].type; }
+@@ -765,6 +771,7 @@ public:
+     ID.AddInteger(RegParm);
+     ID.AddBoolean(NoCfCheck);
+     ID.AddBoolean(CmseNSCall);
++    ID.AddBoolean(CoarseCfCheck);
+     ID.AddInteger(Required.getOpaqueData());
+     ID.AddBoolean(HasExtParameterInfos);
+     if (HasExtParameterInfos) {
+@@ -791,6 +798,7 @@ public:
+     ID.AddBoolean(info.getHasRegParm());
+     ID.AddInteger(info.getRegParm());
+     ID.AddBoolean(info.getNoCfCheck());
++    ID.AddBoolean(info.getCoarseCfCheck());
+     ID.AddBoolean(info.getCmseNSCall());
+     ID.AddInteger(required.getOpaqueData());
+     ID.AddBoolean(!paramInfos.empty());
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index 175bedbfb4d0..11bf7a044641 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -2684,6 +2684,9 @@ def fcf_protection : Flag<["-"], "fcf-protection">, Group<f_Group>,
+   Visibility<[ClangOption, CLOption, CC1Option]>,
+   Alias<fcf_protection_EQ>, AliasArgs<["full"]>,
+   HelpText<"Enable cf-protection in 'full' mode">;
++def mfineibt : Flag<["-"], "mfineibt">, Group<m_Group>,
++  Visibility<[ClangOption, CC1Option]>,
++  HelpText<"Enable fine-grained fwd CFI on top of -fcf-protection=branch (x86 only)">;
+ def mfunction_return_EQ : Joined<["-"], "mfunction-return=">,
+   Group<m_Group>, Visibility<[ClangOption, CLOption, CC1Option]>,
+   HelpText<"Replace returns with jumps to ``__x86_return_thunk`` (x86 only, error otherwise)">,
+diff --git a/clang/lib/AST/ASTContext.cpp b/clang/lib/AST/ASTContext.cpp
+index cc5de9a6295e..20ef205fc1e3 100644
+--- a/clang/lib/AST/ASTContext.cpp
++++ b/clang/lib/AST/ASTContext.cpp
+@@ -10362,6 +10362,8 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
+     return {};
+   if (lbaseInfo.getNoCfCheck() != rbaseInfo.getNoCfCheck())
+     return {};
++  if (lbaseInfo.getCoarseCfCheck() != rbaseInfo.getCoarseCfCheck())
++    return {};
+ 
+   // When merging declarations, it's common for supplemental information like
+   // attributes to only be present in one of the declarations, and we generally
+diff --git a/clang/lib/AST/ASTStructuralEquivalence.cpp b/clang/lib/AST/ASTStructuralEquivalence.cpp
+index be7a850a2982..96c0bed39740 100644
+--- a/clang/lib/AST/ASTStructuralEquivalence.cpp
++++ b/clang/lib/AST/ASTStructuralEquivalence.cpp
+@@ -755,6 +755,8 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
+     return false;
+   if (EI1.getNoCfCheck() != EI2.getNoCfCheck())
+     return false;
++  if (EI1.getCoarseCfCheck() != EI2.getCoarseCfCheck())
++    return false;
+ 
+   return true;
+ }
+diff --git a/clang/lib/AST/TypePrinter.cpp b/clang/lib/AST/TypePrinter.cpp
+index e9b6e810b02e..8d670cbbd843 100644
+--- a/clang/lib/AST/TypePrinter.cpp
++++ b/clang/lib/AST/TypePrinter.cpp
+@@ -1078,6 +1078,8 @@ void TypePrinter::printFunctionAfter(const FunctionType::ExtInfo &Info,
+     OS << " __attribute__((no_caller_saved_registers))";
+   if (Info.getNoCfCheck())
+     OS << " __attribute__((nocf_check))";
++  if (Info.getCoarseCfCheck())
++    OS << " __attribute__((coarsecf_check))";
+ }
+ 
+ void TypePrinter::printFunctionNoProtoBefore(const FunctionNoProtoType *T,
+@@ -1859,6 +1861,7 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
+   // FIXME: When Sema learns to form this AttributedType, avoid printing the
+   // attribute again in printFunctionProtoAfter.
+   case attr::AnyX86NoCfCheck: OS << "nocf_check"; break;
++  case attr::AnyX86CoarseCfCheck: OS << "coarsecf_check"; break;
+   case attr::CDecl: OS << "cdecl"; break;
+   case attr::FastCall: OS << "fastcall"; break;
+   case attr::StdCall: OS << "stdcall"; break;
+diff --git a/clang/lib/Basic/TargetInfo.cpp b/clang/lib/Basic/TargetInfo.cpp
+index 96b3ad9ba2f2..afeb18640633 100644
+--- a/clang/lib/Basic/TargetInfo.cpp
++++ b/clang/lib/Basic/TargetInfo.cpp
+@@ -203,6 +203,12 @@ TargetInfo::checkCFProtectionReturnSupported(DiagnosticsEngine &Diags) const {
+   return false;
+ }
+ 
++bool
++TargetInfo::checkCFProtectionFineSupported(DiagnosticsEngine &Diags) const {
++  Diags.Report(diag::err_opt_not_valid_on_target) << "mfineibt";
++  return false;
++}
++
+ /// getTypeName - Return the user string for the specified integer type enum.
+ /// For example, SignedShort -> "short".
+ const char *TargetInfo::getTypeName(IntType T) {
+diff --git a/clang/lib/Basic/Targets/X86.h b/clang/lib/Basic/Targets/X86.h
+index 0ab1c10833db..fc8b81c91234 100644
+--- a/clang/lib/Basic/Targets/X86.h
++++ b/clang/lib/Basic/Targets/X86.h
+@@ -270,6 +270,13 @@ public:
+     return TargetInfo::checkCFProtectionBranchSupported(Diags);
+   };
+ 
++  bool
++  checkCFProtectionFineSupported(DiagnosticsEngine &Diags) const override {
++    if (CPU == llvm::X86::CK_None || CPU >= llvm::X86::CK_PentiumPro)
++      return true;
++    return TargetInfo::checkCFProtectionFineSupported(Diags);
++  };
++
+   virtual bool validateOperandSize(const llvm::StringMap<bool> &FeatureMap,
+                                    StringRef Constraint, unsigned Size) const;
+ 
+diff --git a/clang/lib/CodeGen/CGCall.cpp b/clang/lib/CodeGen/CGCall.cpp
+index 28c211aa631e..c985441622c6 100644
+--- a/clang/lib/CodeGen/CGCall.cpp
++++ b/clang/lib/CodeGen/CGCall.cpp
+@@ -843,6 +843,7 @@ CGFunctionInfo *CGFunctionInfo::create(unsigned llvmCC, bool instanceMethod,
+   FI->ReturnsRetained = info.getProducesResult();
+   FI->NoCallerSavedRegs = info.getNoCallerSavedRegs();
+   FI->NoCfCheck = info.getNoCfCheck();
++  FI->CoarseCfCheck = info.getCoarseCfCheck();
+   FI->Required = required;
+   FI->HasRegParm = info.getHasRegParm();
+   FI->RegParm = info.getRegParm();
+@@ -2429,6 +2430,8 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
+       FuncAttrs.addAttribute("no_caller_saved_registers");
+     if (TargetDecl->hasAttr<AnyX86NoCfCheckAttr>())
+       FuncAttrs.addAttribute(llvm::Attribute::NoCfCheck);
++    if (TargetDecl->hasAttr<AnyX86CoarseCfCheckAttr>())
++      FuncAttrs.addAttribute(llvm::Attribute::CoarseCfCheck);
+     if (TargetDecl->hasAttr<LeafAttr>())
+       FuncAttrs.addAttribute(llvm::Attribute::NoCallback);
+ 
+@@ -5599,9 +5602,10 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
+   SmallVector<llvm::OperandBundleDef, 1> BundleList =
+       getBundlesForFunclet(CalleePtr);
+ 
+-  if (SanOpts.has(SanitizerKind::KCFI) &&
+-      !isa_and_nonnull<FunctionDecl>(TargetDecl))
+-    EmitKCFIOperandBundle(ConcreteCallee, BundleList);
++  if (!isa_and_nonnull<FunctionDecl>(TargetDecl) &&
++      (SanOpts.has(SanitizerKind::KCFI) || CGM.getCodeGenOpts().FineIBT)) {
++    EmitCFIOperandBundle(ConcreteCallee, BundleList);
++  }
+ 
+   if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurFuncDecl))
+     if (FD->hasAttr<StrictFPAttr>())
+diff --git a/clang/lib/CodeGen/CodeGenFunction.cpp b/clang/lib/CodeGen/CodeGenFunction.cpp
+index d717e85f4400..3fcd2475ca55 100644
+--- a/clang/lib/CodeGen/CodeGenFunction.cpp
++++ b/clang/lib/CodeGen/CodeGenFunction.cpp
+@@ -2696,7 +2696,7 @@ void CodeGenFunction::EmitSanitizerStatReport(llvm::SanitizerStatKind SSK) {
+   CGM.getSanStats().create(IRB, SSK);
+ }
+ 
+-void CodeGenFunction::EmitKCFIOperandBundle(
++void CodeGenFunction::EmitCFIOperandBundle(
+     const CGCallee &Callee, SmallVectorImpl<llvm::OperandBundleDef> &Bundles) {
+   const FunctionProtoType *FP =
+       Callee.getAbstractInfo().getCalleeFunctionProtoType();
+diff --git a/clang/lib/CodeGen/CodeGenFunction.h b/clang/lib/CodeGen/CodeGenFunction.h
+index 143ad64e8816..1914c405ab95 100644
+--- a/clang/lib/CodeGen/CodeGenFunction.h
++++ b/clang/lib/CodeGen/CodeGenFunction.h
+@@ -4768,7 +4768,7 @@ public:
+   /// passing to a runtime sanitizer handler.
+   llvm::Constant *EmitCheckSourceLocation(SourceLocation Loc);
+ 
+-  void EmitKCFIOperandBundle(const CGCallee &Callee,
++  void EmitCFIOperandBundle(const CGCallee &Callee,
+                              SmallVectorImpl<llvm::OperandBundleDef> &Bundles);
+ 
+   /// Create a basic block that will either trap or call a handler function in
+diff --git a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
+index 8cbcfb33c53b..b6d1904950a1 100644
+--- a/clang/lib/CodeGen/CodeGenModule.cpp
++++ b/clang/lib/CodeGen/CodeGenModule.cpp
+@@ -866,7 +866,8 @@ void CodeGenModule::Release() {
+     CodeGenFunction(*this).EmitCfiCheckFail();
+     CodeGenFunction(*this).EmitCfiCheckStub();
+   }
+-  if (LangOpts.Sanitize.has(SanitizerKind::KCFI))
++  if (LangOpts.Sanitize.has(SanitizerKind::KCFI) ||
++      CodeGenOpts.FineIBT)
+     finalizeCFITypes();
+   emitAtAvailableLinkGuard();
+   if (Context.getTargetInfo().getTriple().isWasm())
+@@ -1103,6 +1104,16 @@ void CodeGenModule::Release() {
+                               1);
+   }
+ 
++  if (CodeGenOpts.FineIBT &&
++      Target.checkCFProtectionFineSupported(getDiags())) {
++      assert((CodeGenOpts.FineIBT && CodeGenOpts.CFProtectionBranch)
++	      && "FineIBT requires -fcf-protection=branch/full.");
++      // Indicate that we want to add FineIBT on top of IBT
++      // (x86-specific forward edge control flow protection).
++      getModule().addModuleFlag(llvm::Module::Min, "fineibt",
++		                1);
++  }
++
+   if (CodeGenOpts.FunctionReturnThunks)
+     getModule().addModuleFlag(llvm::Module::Override, "function_return_thunk_extern", 1);
+ 
+@@ -2113,8 +2124,11 @@ llvm::ConstantInt *CodeGenModule::CreateCFITypeId(QualType T) {
+   if (getCodeGenOpts().SanitizeCfiICallNormalizeIntegers)
+     Out << ".normalized";
+ 
+-  return llvm::ConstantInt::get(Int32Ty,
+-                                static_cast<uint32_t>(llvm::xxHash64(OutName)));
++  // Type IDs are 31 bits so the application can have its own type ID namespace
++  // (e.g., for JITed code).
++  uint32_t TypeId = static_cast<uint32_t>(llvm::xxHash64(OutName));
++  TypeId &= (1ul << 31) - 1;
++  return llvm::ConstantInt::get(Int32Ty, TypeId);
+ }
+ 
+ void CodeGenModule::SetLLVMFunctionAttributes(GlobalDecl GD,
+@@ -2863,7 +2877,8 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
+       !CodeGenOpts.SanitizeCfiCanonicalJumpTables)
+     CreateFunctionTypeMetadataForIcall(FD, F);
+ 
+-  if (LangOpts.Sanitize.has(SanitizerKind::KCFI))
++  if (LangOpts.Sanitize.has(SanitizerKind::KCFI) ||
++      CodeGenOpts.FineIBT)
+     setCFIType(FD, F);
+ 
+   if (getLangOpts().OpenMP && FD->hasAttr<OMPDeclareSimdDeclAttr>())
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index aa344b3465ab..35eab2389c4f 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -6731,6 +6731,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
+     CmdArgs.push_back(
+         Args.MakeArgString(Twine("-mfunction-return=") + A->getValue()));
+ 
++  Args.AddLastArg(CmdArgs, options::OPT_mfineibt);
++
+   Args.AddLastArg(CmdArgs, options::OPT_mindirect_branch_cs_prefix);
+ 
+   // Forward -f options with positive and negative forms; we translate these by
+diff --git a/clang/lib/Frontend/CompilerInvocation.cpp b/clang/lib/Frontend/CompilerInvocation.cpp
+index feb4de2084b8..9511662161a1 100644
+--- a/clang/lib/Frontend/CompilerInvocation.cpp
++++ b/clang/lib/Frontend/CompilerInvocation.cpp
+@@ -1608,6 +1608,9 @@ void CompilerInvocationBase::GenerateCodeGenArgs(const CodeGenOptions &Opts,
+   else if (Opts.CFProtectionBranch)
+     GenerateArg(Consumer, OPT_fcf_protection_EQ, "branch");
+ 
++  if (Opts.FineIBT)
++    GenerateArg(Consumer, OPT_mfineibt);
++
+   if (Opts.FunctionReturnThunks)
+     GenerateArg(Consumer, OPT_mfunction_return_EQ, "thunk-extern");
+ 
+@@ -1940,6 +1943,9 @@ bool CompilerInvocation::ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args,
+       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Name;
+   }
+ 
++  if (Args.getLastArg(OPT_mfineibt))
++    Opts.FineIBT = 1;
++
+   if (const Arg *A = Args.getLastArg(OPT_mfunction_return_EQ)) {
+     auto Val = llvm::StringSwitch<llvm::FunctionReturnThunksKind>(A->getValue())
+                    .Case("keep", llvm::FunctionReturnThunksKind::Keep)
+@@ -3766,6 +3772,10 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
+     }
+   }
+ 
++  if (Args.getLastArg(OPT_mfineibt)) {
++    Opts.FineIBT = 1;
++  }
++
+   if ((Args.hasArg(OPT_fsycl_is_device) || Args.hasArg(OPT_fsycl_is_host)) &&
+       !Args.hasArg(OPT_sycl_std_EQ)) {
+     // If the user supplied -fsycl-is-device or -fsycl-is-host, but failed to
+@@ -4340,6 +4350,8 @@ static void GeneratePreprocessorArgs(const PreprocessorOptions &Opts,
+     if (M.first == "__CET__=3" && !M.second && CodeGenOpts.CFProtectionReturn &&
+         CodeGenOpts.CFProtectionBranch)
+       continue;
++    if (M.first == "__CET__=0x11" && !M.second && CodeGenOpts.FineIBT)
++      continue;
+ 
+     GenerateArg(Consumer, M.second ? OPT_U : OPT_D, M.first);
+   }
+@@ -4411,7 +4423,9 @@ static bool ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
+   }
+ 
+   // Add the __CET__ macro if a CFProtection option is set.
+-  if (const Arg *A = Args.getLastArg(OPT_fcf_protection_EQ)) {
++  if (Args.getLastArg(OPT_mfineibt)) {
++    Opts.addMacroDef("__CET__=0x11");
++  } else if (const Arg *A = Args.getLastArg(OPT_fcf_protection_EQ)) {
+     StringRef Name = A->getValue();
+     if (Name == "branch")
+       Opts.addMacroDef("__CET__=1");
+diff --git a/clang/lib/Headers/cet.h b/clang/lib/Headers/cet.h
+index ffb19dec8f2b..72ffe97b267f 100644
+--- a/clang/lib/Headers/cet.h
++++ b/clang/lib/Headers/cet.h
+@@ -20,8 +20,12 @@
+ 
+ #ifdef __CET__
+ 
++// FineIBT sets __CET__ = 0x11 because it requires IBT to also be set.
+ # ifdef __LP64__
+-#  if __CET__ & 0x1
++#  if __CET__ & 0x10
++// TODO generate fineibt check / stub
++#    define _CET_ENDBR endbr64
++#  elif __CET__ & 0x1
+ #    define _CET_ENDBR endbr64
+ #  else
+ #    define _CET_ENDBR
+diff --git a/clang/lib/Sema/SemaDeclAttr.cpp b/clang/lib/Sema/SemaDeclAttr.cpp
+index 6f462de4be78..5cd55a3b8f97 100644
+--- a/clang/lib/Sema/SemaDeclAttr.cpp
++++ b/clang/lib/Sema/SemaDeclAttr.cpp
+@@ -2228,6 +2228,13 @@ static void handleNoCfCheckAttr(Sema &S, Decl *D, const ParsedAttr &Attrs) {
+     handleSimpleAttribute<AnyX86NoCfCheckAttr>(S, D, Attrs);
+ }
+ 
++static void handleCoarseCfCheckAttr(Sema &S, Decl *D, const ParsedAttr &Attrs) {
++  if (!S.getLangOpts().CFProtectionBranch)
++    S.Diag(Attrs.getLoc(), diag::warn_coarsecf_check_attribute_ignored);
++  else
++    handleSimpleAttribute<AnyX86CoarseCfCheckAttr>(S, D, Attrs);
++}
++
+ bool Sema::CheckAttrNoArgs(const ParsedAttr &Attrs) {
+   if (!Attrs.checkExactlyNumArgs(*this, 0)) {
+     Attrs.setInvalid();
+@@ -9364,6 +9371,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
+   case ParsedAttr::AT_AnyX86NoCfCheck:
+     handleNoCfCheckAttr(S, D, AL);
+     break;
++  case ParsedAttr::AT_AnyX86CoarseCfCheck:
++    handleCoarseCfCheckAttr(S, D, AL);
++    break;
+   case ParsedAttr::AT_NoThrow:
+     if (!AL.isUsedAsTypeAttr())
+       handleSimpleAttribute<NoThrowAttr>(S, D, AL);
+diff --git a/clang/lib/Sema/SemaType.cpp b/clang/lib/Sema/SemaType.cpp
+index 92086d7277fd..5927822637ea 100644
+--- a/clang/lib/Sema/SemaType.cpp
++++ b/clang/lib/Sema/SemaType.cpp
+@@ -153,6 +153,7 @@ static void diagnoseBadTypeAttribute(Sema &S, const ParsedAttr &attr,
+   case ParsedAttr::AT_ArmInOut:                                                \
+   case ParsedAttr::AT_AnyX86NoCallerSavedRegisters:                            \
+   case ParsedAttr::AT_AnyX86NoCfCheck:                                         \
++  case ParsedAttr::AT_AnyX86CoarseCfCheck:                                     \
+     CALLING_CONV_ATTRS_CASELIST
+ 
+ // Microsoft-specific type qualifiers.
+@@ -8067,6 +8068,27 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
+     return true;
+   }
+ 
++  if (attr.getKind() == ParsedAttr::AT_AnyX86CoarseCfCheck) {
++    if (!S.getLangOpts().CFProtectionBranch) {
++      S.Diag(attr.getLoc(), diag::warn_coarsecf_check_attribute_ignored);
++      attr.setInvalid();
++      return true;
++    }
++
++    if (S.CheckAttrTarget(attr) || S.CheckAttrNoArgs(attr))
++      return true;
++
++    // If this is not a function type, warning will be asserted by subject
++    // check.
++    if (!unwrapped.isFunctionType())
++      return true;
++
++    FunctionType::ExtInfo EI =
++      unwrapped.get()->getExtInfo().withCoarseCfCheck(true);
++    type = unwrapped.wrap(S, S.Context.adjustFunctionType(unwrapped.get(), EI));
++    return true;
++  }
++
+   if (attr.getKind() == ParsedAttr::AT_Regparm) {
+     unsigned value;
+     if (S.CheckRegparmAttr(attr, value))
+diff --git a/compiler-rt/lib/builtins/crtbegin.c b/compiler-rt/lib/builtins/crtbegin.c
+index a0860ca12ea0..1fe163721682 100644
+--- a/compiler-rt/lib/builtins/crtbegin.c
++++ b/compiler-rt/lib/builtins/crtbegin.c
+@@ -8,6 +8,12 @@
+ 
+ #include <stddef.h>
+ 
++#if defined __CET__ && __CET__ & 0x10
++#define _COARSECF_CHECK __attribute__((coarsecf_check))
++#else
++#define _COARSECF_CHECK
++#endif
++
+ __attribute__((visibility("hidden"))) void *__dso_handle = &__dso_handle;
+ 
+ #ifdef EH_USE_FRAME_REGISTRY
+@@ -28,7 +34,7 @@ extern fp __CTOR_LIST_END__[];
+ 
+ extern void __cxa_finalize(void *) __attribute__((weak));
+ 
+-static void __attribute__((used)) __do_init(void) {
++static void __attribute__((used)) _COARSECF_CHECK __do_init(void) {
+   static _Bool __initialized;
+   if (__builtin_expect(__initialized, 0))
+     return;
+@@ -83,7 +89,7 @@ static fp __DTOR_LIST__[]
+ extern fp __DTOR_LIST_END__[];
+ #endif
+ 
+-static void __attribute__((used)) __do_fini(void) {
++static void __attribute__((used)) _COARSECF_CHECK __do_fini(void) {
+   static _Bool __finalized;
+   if (__builtin_expect(__finalized, 0))
+     return;
+diff --git a/llvm/include/llvm/BinaryFormat/ELF.h b/llvm/include/llvm/BinaryFormat/ELF.h
+index f17ba75e3efa..ade41b5cc3ef 100644
+--- a/llvm/include/llvm/BinaryFormat/ELF.h
++++ b/llvm/include/llvm/BinaryFormat/ELF.h
+@@ -1747,6 +1747,7 @@ enum : unsigned {
+ enum : unsigned {
+   GNU_PROPERTY_X86_FEATURE_1_IBT = 1 << 0,
+   GNU_PROPERTY_X86_FEATURE_1_SHSTK = 1 << 1,
++  GNU_PROPERTY_X86_FEATURE_1_FINEIBT = 1 << 4,
+ 
+   GNU_PROPERTY_X86_FEATURE_2_X86 = 1 << 0,
+   GNU_PROPERTY_X86_FEATURE_2_X87 = 1 << 1,
+diff --git a/llvm/include/llvm/Bitcode/LLVMBitCodes.h b/llvm/include/llvm/Bitcode/LLVMBitCodes.h
+index c6f0ddf29a6d..3a996fbfc4a0 100644
+--- a/llvm/include/llvm/Bitcode/LLVMBitCodes.h
++++ b/llvm/include/llvm/Bitcode/LLVMBitCodes.h
+@@ -724,6 +724,7 @@ enum AttributeKindCodes {
+   ATTR_KIND_WRITABLE = 89,
+   ATTR_KIND_CORO_ONLY_DESTROY_WHEN_COMPLETE = 90,
+   ATTR_KIND_DEAD_ON_UNWIND = 91,
++  ATTR_KIND_COARSECF_CHECK = 92,
+ };
+ 
+ enum ComdatSelectionKindCodes {
+diff --git a/llvm/include/llvm/CodeGen/MachineInstr.h b/llvm/include/llvm/CodeGen/MachineInstr.h
+index bd72ac23fc9c..b8df5c371387 100644
+--- a/llvm/include/llvm/CodeGen/MachineInstr.h
++++ b/llvm/include/llvm/CodeGen/MachineInstr.h
+@@ -130,6 +130,9 @@ private:
+   /// Number of operands on instruction.
+   uint32_t NumOperands : LLVM_MI_NUMOPERANDS_BITS;
+ 
++  // DoNotRelax flag used to prevent instruction from being relaxed.
++  bool DoNotRelax = 0;
++
+   // OperandCapacity has uint8_t size, so it should be next to NumOperands
+   // to properly pack.
+   using OperandCapacity = ArrayRecycler<MachineOperand>::Capacity;
+@@ -401,6 +404,12 @@ public:
+     Flags &= ~((uint32_t)Flag);
+   }
+ 
++  /// Set do not realx.
++  void setDoNotRelax(bool Flag) { DoNotRelax = Flag; }
++
++  /// Get do not relax.
++  bool getDoNotRelax() const { return DoNotRelax; }
++
+   /// Return true if MI is in a bundle (but not the first MI in a bundle).
+   ///
+   /// A bundle looks like this before it's finalized:
+diff --git a/llvm/include/llvm/CodeGen/Passes.h b/llvm/include/llvm/CodeGen/Passes.h
+index bbfb8a0dbe26..a7a4e8da3da1 100644
+--- a/llvm/include/llvm/CodeGen/Passes.h
++++ b/llvm/include/llvm/CodeGen/Passes.h
+@@ -578,6 +578,10 @@ namespace llvm {
+   /// caller saved registers with stack slots.
+   extern char &FixupStatepointCallerSavedID;
+ 
++  /// Creates FineIBT section with hashes used during fine-grained checks.
++  /// This section is needed for correct PLT emission and then is discarded.
++  ModulePass *createFineIBTPass();
++
+   /// The pass transforms load/store <256 x i32> to AMX load/store intrinsics
+   /// or split the data to two <128 x i32>.
+   FunctionPass *createX86LowerAMXTypePass();
+diff --git a/llvm/include/llvm/IR/Attributes.td b/llvm/include/llvm/IR/Attributes.td
+index d22eb76d2292..e703d6987872 100644
+--- a/llvm/include/llvm/IR/Attributes.td
++++ b/llvm/include/llvm/IR/Attributes.td
+@@ -184,6 +184,9 @@ def NoSync : EnumAttr<"nosync", [FnAttr]>;
+ /// Disable Indirect Branch Tracking.
+ def NoCfCheck : EnumAttr<"nocf_check", [FnAttr]>;
+ 
++/// Set coarse Indirect Branch Tracking.
++def CoarseCfCheck : EnumAttr<"coarsecf_check", [FnAttr]>;
++
+ /// Function should not be instrumented.
+ def NoProfile : EnumAttr<"noprofile", [FnAttr]>;
+ 
+diff --git a/llvm/include/llvm/IR/Function.h b/llvm/include/llvm/IR/Function.h
+index cb87a4498032..449df20eeac9 100644
+--- a/llvm/include/llvm/IR/Function.h
++++ b/llvm/include/llvm/IR/Function.h
+@@ -564,6 +564,11 @@ public:
+   /// Determine if the function should not perform indirect branch tracking.
+   bool doesNoCfCheck() const { return hasFnAttribute(Attribute::NoCfCheck); }
+ 
++  /// Determine if the function should perform fine or coarse ibt.
++  bool doesCoarseCfCheck() const {
++    return hasFnAttribute(Attribute::CoarseCfCheck);
++  }
++
+   /// Determine if the function cannot unwind.
+   bool doesNotThrow() const {
+     return hasFnAttribute(Attribute::NoUnwind);
+diff --git a/llvm/include/llvm/IR/InstrTypes.h b/llvm/include/llvm/IR/InstrTypes.h
+index 6eba902fa041..e274e60297bf 100644
+--- a/llvm/include/llvm/IR/InstrTypes.h
++++ b/llvm/include/llvm/IR/InstrTypes.h
+@@ -1991,6 +1991,9 @@ public:
+   /// Determine if the call should not perform indirect branch tracking.
+   bool doesNoCfCheck() const { return hasFnAttr(Attribute::NoCfCheck); }
+ 
++  /// Determine if the call should perform coarse indirect branch tracking.
++  bool doesCoarseCfCheck() const { return hasFnAttr(Attribute::CoarseCfCheck); }
++
+   /// Determine if the call cannot unwind.
+   bool doesNotThrow() const { return hasFnAttr(Attribute::NoUnwind); }
+   void setDoesNotThrow() { addFnAttr(Attribute::NoUnwind); }
+diff --git a/llvm/include/llvm/InitializePasses.h b/llvm/include/llvm/InitializePasses.h
+index 3db639a68724..4699c3dd57c8 100644
+--- a/llvm/include/llvm/InitializePasses.h
++++ b/llvm/include/llvm/InitializePasses.h
+@@ -280,6 +280,7 @@ void initializeSingleLoopExtractorPass(PassRegistry&);
+ void initializeSinkingLegacyPassPass(PassRegistry&);
+ void initializeSjLjEHPreparePass(PassRegistry&);
+ void initializeSlotIndexesPass(PassRegistry&);
++void initializeFineIBTPass(PassRegistry&);
+ void initializeSpeculativeExecutionLegacyPassPass(PassRegistry&);
+ void initializeSpillPlacementPass(PassRegistry&);
+ void initializeStackColoringPass(PassRegistry&);
+diff --git a/llvm/lib/Analysis/TargetLibraryInfo.cpp b/llvm/lib/Analysis/TargetLibraryInfo.cpp
+index 53194a5c6760..a1286d41dd16 100644
+--- a/llvm/lib/Analysis/TargetLibraryInfo.cpp
++++ b/llvm/lib/Analysis/TargetLibraryInfo.cpp
+@@ -1173,7 +1173,7 @@ StringRef TargetLibraryInfoImpl::getMangledTypeNameForLibFunc(LibFunc F) const {
+ 
+ uint32_t TargetLibraryInfoImpl::getCFITypeIdForLibFunc(LibFunc F) const {
+   const StringRef TypeName = getMangledTypeNameForLibFunc(F);
+-  return static_cast<uint32_t>(llvm::xxHash64(TypeName));
++  return static_cast<uint32_t>(llvm::xxHash64(TypeName)) & ((1u << 31) - 1);
+ }
+ 
+ void TargetLibraryInfoImpl::disableAllFunctions() {
+diff --git a/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp b/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp
+index a5fc267b1883..95e2cf996e62 100644
+--- a/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp
++++ b/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp
+@@ -750,6 +750,8 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
+     return bitc::ATTR_KIND_NOSYNC;
+   case Attribute::NoCfCheck:
+     return bitc::ATTR_KIND_NOCF_CHECK;
++  case Attribute::CoarseCfCheck:
++    return bitc::ATTR_KIND_COARSECF_CHECK;
+   case Attribute::NoProfile:
+     return bitc::ATTR_KIND_NO_PROFILE;
+   case Attribute::SkipProfile:
+diff --git a/llvm/lib/Target/X86/CMakeLists.txt b/llvm/lib/Target/X86/CMakeLists.txt
+index 610999f0cc3c..ef221eb49316 100644
+--- a/llvm/lib/Target/X86/CMakeLists.txt
++++ b/llvm/lib/Target/X86/CMakeLists.txt
+@@ -46,6 +46,8 @@ set(sources
+   X86FixupInstTuning.cpp
+   X86FixupVectorConstants.cpp
+   X86AvoidStoreForwardingBlocks.cpp
++  X86FineIBT.cpp
++  FineIBT.cpp
+   X86DynAllocaExpander.cpp
+   X86FixupSetCC.cpp
+   X86FlagsCopyLowering.cpp
+diff --git a/llvm/lib/Target/X86/FineIBT.cpp b/llvm/lib/Target/X86/FineIBT.cpp
+new file mode 100644
+index 000000000000..297d5aed5904
+--- /dev/null
++++ b/llvm/lib/Target/X86/FineIBT.cpp
+@@ -0,0 +1,277 @@
++//===----- FineIBT - Creates FineIBT check stubs and PLT type metadata ----===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// TODO stubs
++//
++// The FineIBT final DSO can contain multiple functions, which are provenient
++// from different object files. During the Linking of these objects, the PLT
++// entries generated require the hash of each function. Given that these
++// functions are accessed through the PLT, they are not present in any of the
++// object files being linked. Also, as these hashes are based on the prototype
++// respective to each function, and that such signature information is not
++// available in the binary objects, the linker needs to be actively informed
++// about such hashes.
++//
++// This pass creates functions which will hold the FineIBT hashes so they can
++// be accessed by the linker and used during PLT emission. These functions are
++// placed in a special section ".fineibt.plthashes" so they can all be discarded
++// once the final DSO is fully linked.
++//
++//===----------------------------------------------------------------------===//
++
++
++#include "X86.h"
++#include "X86InstrInfo.h"
++#include "llvm/Analysis/TargetLibraryInfo.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/Passes.h"
++#include "llvm/CodeGen/TargetPassConfig.h"
++#include "llvm/IR/Attributes.h"
++#include "llvm/IR/DiagnosticInfo.h"
++#include "llvm/IR/DiagnosticPrinter.h"
++#include "llvm/IR/GlobalAlias.h"
++#include "llvm/IR/IRBuilder.h"
++#include "llvm/IR/MDBuilder.h"
++#include "llvm/IR/Module.h"
++#include "llvm/InitializePasses.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/Error.h"
++#include "llvm/Support/SourceMgr.h"
++#include "llvm/Support/WithColor.h"
++#include <iostream>
++
++using namespace llvm;
++
++#define DEBUG_TYPE "FineIBT"
++
++namespace {
++
++class FineIBT : public ModulePass {
++public:
++  static char ID; // Pass identification, replacement for typeid
++  FineIBT() : ModulePass(ID) {
++    initializeFineIBTPass(*PassRegistry::getPassRegistry());
++  }
++
++  void getAnalysisUsage(AnalysisUsage &AU) const override {
++    AU.addRequired<TargetPassConfig>();
++    AU.addRequired<TargetLibraryInfoWrapperPass>();
++  }
++
++  bool runOnModule(Module &M) override;
++
++private:
++  bool getIntrinsicInfo(Function &F, std::string &RetFuncName, uint32_t &RetTypeId);
++  bool createStubTemplate(Function &F);
++  bool createPLTTemplate(Function &F);
++};
++} // namespace
++
++char FineIBT::ID = 0;
++
++INITIALIZE_PASS(FineIBT, "FineIBT",
++                "Add function stubs and PLT type metadata",
++                false, false)
++
++ModulePass *llvm::createFineIBTPass() {
++  return new FineIBT();
++}
++
++bool FineIBT::createStubTemplate(Function &F) {
++  Module &M = *F.getParent();
++  LLVMContext &Ctx = M.getContext();
++
++  if (F.isDeclaration() != F.isDeclarationForLinker()) {
++    errs() << "!!! Example of isDeclaration=" << F.isDeclaration() << " != isDeclarationForLinker=" << F.isDeclarationForLinker() << "\n";
++    llvm_unreachable("aa");
++  }
++
++  if (F.isIntrinsic())
++    return false;
++
++  if (F.isDeclaration())
++    return false;
++
++  if (F.hasFnAttribute(Attribute::AttrKind::AlwaysInline))
++    return false;
++
++
++  std::string OrigName = F.getName().str();
++  std::string NewName = F.getName().str() + ".nocfi";
++
++  errs() << "Create stub " << OrigName << " -> " << NewName << "\n";
++
++  F.setName(NewName);
++
++  // Omit the stub entry if possible (only direct calls to local symbol)
++  // We still do the renaming (to <func>.nocfi) for consistency.
++  if (!F.hasAddressTaken() && F.hasLocalLinkage())
++    return true;
++
++  Function *NewFn = Function::Create(F.getFunctionType(), F.getLinkage(), OrigName, M);
++  NewFn->copyAttributesFrom(&F);
++  NewFn->copyMetadata(&F, 0);
++  NewFn->eraseMetadata(LLVMContext::MD_dbg);
++  NewFn->setSection("fineibt_stub");
++
++  F.replaceUsesWithIf(NewFn,
++    [](Use &U) {
++      // Do not replace in direct calls.
++      CallBase *CB = dyn_cast<CallBase>(U.getUser());
++      if (CB && CB->isCallee(&U))
++        return false;
++      return true;
++    }
++  );
++
++  // Change linkage of original function (.nocfi variant) to local, to prevent
++  // it going through PLT.
++  F.setLinkage(GlobalValue::InternalLinkage);
++
++  // Emit a tail call (i.e., jmp) to the original function to preserve the CFG.
++  // This is later rewritten by the X86FineIBT backend pass.
++  BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", NewFn);
++  IRBuilder<> IRB(Entry);
++  SmallVector<Value*, 4> Args;
++  for (auto &A : NewFn->args()) { Args.push_back(cast<Value>(&A)); }
++  CallInst *CI = IRB.CreateCall(&F, Args);
++  CI->setAttributes(F.getAttributes());
++  CI->setTailCallKind(CI->TCK_MustTail);
++  CI->setIsNoInline();
++  if (F.getReturnType()->isVoidTy())
++    IRB.CreateRetVoid();
++  else
++    IRB.CreateRet(CI);
++
++  return true;
++}
++
++bool FineIBT::getIntrinsicInfo(Function &F, std::string &RetFuncName, uint32_t &RetTypeId) {
++  TargetLibraryInfo &TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI(F);
++  std::string IntrFuncName;
++  // XXX List from LowerIntrinsics pass - can we avoid hardcoding it here?
++  switch (F.getIntrinsicID()) {
++    case Intrinsic::memcpy:     IntrFuncName = "memcpy";    break;
++    case Intrinsic::memmove:    IntrFuncName = "memmove";   break;
++    case Intrinsic::memset:     IntrFuncName = "memset";    break;
++    case Intrinsic::sqrt:       IntrFuncName = "sqrt";      break;
++    case Intrinsic::log:        IntrFuncName = "log";       break;
++    case Intrinsic::log2:       IntrFuncName = "log2";      break;
++    case Intrinsic::log10:      IntrFuncName = "log10";     break;
++    case Intrinsic::exp:        IntrFuncName = "exp";       break;
++    case Intrinsic::exp2:       IntrFuncName = "exp2";      break;
++    case Intrinsic::pow:        IntrFuncName = "pow";       break;
++    case Intrinsic::sin:        IntrFuncName = "sin";       break;
++    case Intrinsic::cos:        IntrFuncName = "cos";       break;
++    case Intrinsic::floor:      IntrFuncName = "floor";     break;
++    case Intrinsic::ceil:       IntrFuncName = "ceil";      break;
++    case Intrinsic::trunc:      IntrFuncName = "trunc";     break;
++    case Intrinsic::round:      IntrFuncName = "round";     break;
++    case Intrinsic::roundeven:  IntrFuncName = "roundeven"; break;
++    case Intrinsic::copysign:   IntrFuncName = "copysign";  break;
++    case Intrinsic::not_intrinsic: llvm_unreachable("not intrinsic");
++    default: return false; // Won't get lowered into a call - ignore
++  }
++
++  // For float-point functions, add the correct suffix.
++  switch (F.getArg(0)->getType()->getTypeID()) {
++    case Type::FloatTyID:
++      IntrFuncName += "f";
++      break;
++    case Type::DoubleTyID:
++      /* no suffix */
++      break;
++    case Type::X86_FP80TyID:
++    case Type::FP128TyID:
++    case Type::PPC_FP128TyID:
++      IntrFuncName += "l";
++      break;
++    default: break;
++  }
++
++  LibFunc TheLibFunc;
++  if (!TLI.getLibFunc(IntrFuncName, TheLibFunc)) {
++    llvm::errs() << "FineIBT: Could not get LibFunc for intrinsic '" << IntrFuncName << "'\n";
++  }
++
++  RetFuncName = IntrFuncName;
++  RetTypeId = TLI.getCFITypeId(TheLibFunc);
++  return true;
++}
++
++// Create .fineibt.plthashes entries for the hashes later used to emit the PLT.
++bool FineIBT::createPLTTemplate(Function &F) {
++  Module &M = *F.getParent();
++  LLVMContext &Ctx = M.getContext();
++  StringRef Name = F.getName();
++
++  // Most intrinsics, static and no/coarse cf checks don't need special PLT
++  // entries.
++  if (F.doesNoCfCheck() || F.doesCoarseCfCheck() || F.hasLocalLinkage())
++    return false;
++
++  std::string FuncName;
++  MDNode *MD;
++  if (F.isIntrinsic()) {
++    // Some intrinsics can be lowered to a call by CodeGen.
++    // We should emit PLT hashes for the call it may be rewritten to.
++    uint32_t IntrTypeId;
++    if (!getIntrinsicInfo(F, FuncName, IntrTypeId))
++      return false;
++
++    auto Int32Ty = Type::getInt32Ty(Ctx);
++    auto CFITypeId = ConstantInt::get(Int32Ty, IntrTypeId);
++    MDBuilder MDB(Ctx);
++    MD = MDNode::get(Ctx, MDB.createConstant(CFITypeId));
++  } else {
++    FuncName = Name.str();
++    MD = F.getMetadata(LLVMContext::MD_cfi_type);
++    if (!MD) {
++      llvm::errs() << "FineIBT PLT: Missing metadata for " << Name << "\n";
++      return false;
++    }
++  }
++
++  auto PltFnName = "__fineibt_plthash_" + FuncName;
++  auto Ty = FunctionType::get(Type::getVoidTy(Ctx), false);
++  Function *Fn = Function::Create(Ty, GlobalValue::WeakAnyLinkage, PltFnName, &M);
++  Fn->setDoesNotReturn();
++  Fn->setVisibility(GlobalValue::DefaultVisibility);
++  Fn->setCallingConv(CallingConv::C);
++  Fn->setSection(".fineibt.plthashes");
++  Fn->setMetadata(llvm::LLVMContext::MD_cfi_type, MD);
++  Fn->setAlignment(Align(8));
++
++  AttrBuilder B(Ctx);
++  B.addAttribute(llvm::Attribute::NoUnwind);
++  B.addAttribute(llvm::Attribute::Naked);
++  Fn->addFnAttrs(B);
++
++  BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", Fn);
++  IRBuilder<> Builder(Entry);
++  Builder.CreateUnreachable();
++
++  return true;
++}
++
++bool FineIBT::runOnModule(Module &M) {
++  if (!M.getModuleFlag("fineibt"))
++    return false;
++
++  SmallVector<Function*, 128> Functions;
++  for (auto &F : M) {
++    Functions.emplace_back(&F);
++  }
++
++  bool Changed = false;
++  for (Function *F : Functions) {
++    Changed |= createPLTTemplate(*F);
++    Changed |= createStubTemplate(*F); // Note: may change function F
++  }
++  return Changed;
++}
+diff --git a/llvm/lib/Target/X86/MCTargetDesc/X86AsmBackend.cpp b/llvm/lib/Target/X86/MCTargetDesc/X86AsmBackend.cpp
+index 99dc9797f6df..76e379202134 100644
+--- a/llvm/lib/Target/X86/MCTargetDesc/X86AsmBackend.cpp
++++ b/llvm/lib/Target/X86/MCTargetDesc/X86AsmBackend.cpp
+@@ -722,6 +722,9 @@ void X86AsmBackend::applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
+ 
+ bool X86AsmBackend::mayNeedRelaxation(const MCInst &MI,
+                                       const MCSubtargetInfo &STI) const {
++  if (MI.getFlags() & X86::EXTRA_DO_NOT_RELAX)
++    return false;
++
+   unsigned Opcode = MI.getOpcode();
+   return isRelaxableBranch(Opcode) ||
+          (X86::getOpcodeForLongImmediateForm(Opcode) != Opcode &&
+diff --git a/llvm/lib/Target/X86/MCTargetDesc/X86BaseInfo.h b/llvm/lib/Target/X86/MCTargetDesc/X86BaseInfo.h
+index 4442b80861b6..1849e3eb0f36 100644
+--- a/llvm/lib/Target/X86/MCTargetDesc/X86BaseInfo.h
++++ b/llvm/lib/Target/X86/MCTargetDesc/X86BaseInfo.h
+@@ -64,6 +64,10 @@ enum IPREFIXES {
+   IP_USE_DISP32 = 1U << 11,
+ };
+ 
++enum EXTRAINFO {
++  EXTRA_DO_NOT_RELAX = 1U << 12,
++};
++
+ enum OperandType : unsigned {
+   // AVX512 embedded rounding control. This should only have values 0-3.
+   OPERAND_ROUNDING_CONTROL = MCOI::OPERAND_FIRST_TARGET,
+diff --git a/llvm/lib/Target/X86/X86.h b/llvm/lib/Target/X86/X86.h
+index 21623a805f55..5303aa2a2ce2 100644
+--- a/llvm/lib/Target/X86/X86.h
++++ b/llvm/lib/Target/X86/X86.h
+@@ -50,6 +50,10 @@ FunctionPass *createX86IssueVZeroUpperPass();
+ /// destinations as part of CET IBT mechanism.
+ FunctionPass *createX86IndirectBranchTrackingPass();
+ 
++/// This pass inserts FineIBT instrumentation, consisting of IBT ENDBRs and
++/// function type id checks.
++FunctionPass *createX86FineIBTPass();
++
+ /// Return a pass that pads short functions with NOOPs.
+ /// This will prevent a stall when returning on the Atom.
+ FunctionPass *createX86PadShortFunctions();
+diff --git a/llvm/lib/Target/X86/X86AsmPrinter.cpp b/llvm/lib/Target/X86/X86AsmPrinter.cpp
+index f07be8560d7d..f9c47cff06d6 100644
+--- a/llvm/lib/Target/X86/X86AsmPrinter.cpp
++++ b/llvm/lib/Target/X86/X86AsmPrinter.cpp
+@@ -849,8 +849,11 @@ void X86AsmPrinter::emitStartOfAsmFile(Module &M) {
+   if (TT.isOSBinFormatELF()) {
+     // Assemble feature flags that may require creation of a note section.
+     unsigned FeatureFlagsAnd = 0;
+-    if (M.getModuleFlag("cf-protection-branch"))
++    if (M.getModuleFlag("cf-protection-branch")) {
+       FeatureFlagsAnd |= ELF::GNU_PROPERTY_X86_FEATURE_1_IBT;
++      if (M.getModuleFlag("fineibt"))
++        FeatureFlagsAnd |= ELF::GNU_PROPERTY_X86_FEATURE_1_FINEIBT;
++    }
+     if (M.getModuleFlag("cf-protection-return"))
+       FeatureFlagsAnd |= ELF::GNU_PROPERTY_X86_FEATURE_1_SHSTK;
+ 
+diff --git a/llvm/lib/Target/X86/X86FineIBT.cpp b/llvm/lib/Target/X86/X86FineIBT.cpp
+new file mode 100644
+index 000000000000..ad7aac59cd20
+--- /dev/null
++++ b/llvm/lib/Target/X86/X86FineIBT.cpp
+@@ -0,0 +1,528 @@
++//===---- X86FineIBT.cpp - Enables FineIBT ------------------------ -------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file defines a pass that enables FineIBT instrumentation, adding
++// fine-grained Control Flow Integrity (CFI) based on CET IBT and function type
++// hash checks.
++//
++// This pass handles ENDBR insertion (part of CET IBT) as part of its FineIBT
++// instrumentation. This pass should not run in combination with the
++// X86IndirectBranchTracking pass - that pass is disabled if FineIBT is active.
++//===----------------------------------------------------------------------===//
++
++#include "X86.h"
++#include "X86InstrInfo.h"
++#include "X86Subtarget.h"
++#include "X86TargetMachine.h"
++#include "llvm/ADT/Statistic.h"
++#include "llvm/CodeGen/MachineFunctionPass.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/MachineModuleInfo.h"
++#include "llvm/CodeGen/RegisterScavenging.h"
++#include "llvm/MC/MCSymbolELF.h"
++
++using namespace llvm;
++
++#define DEBUG_TYPE "x86-fineibt"
++
++cl::opt<bool> EnableFineIBT(
++    "x86-fineibt", cl::init(false), cl::Hidden,
++    cl::desc("Enable X86 FineIBT pass."));
++
++STATISTIC(NumCoarseFunctions, "Number of coarse function (ENDBR only)");
++STATISTIC(NumFineFunctions, "Number of fine-grained functions (hashcheck)");
++STATISTIC(NumEndBranchAdded, "Number of ENDBRs inserted outside of function prologues");
++
++namespace {
++class X86FineIBTPass : public MachineFunctionPass {
++public:
++  X86FineIBTPass() : MachineFunctionPass(ID) {}
++
++  StringRef getPassName() const override {
++    return "X86 FineIBT";
++  }
++
++  bool runOnMachineFunction(MachineFunction &MF) override;
++
++private:
++  static char ID;
++
++  /// Machine instruction info used throughout the class.
++  const X86InstrInfo *TII = nullptr;
++
++  /// Emit an n-byte NOP.
++  MachineInstr *emitNop(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
++                        unsigned size) const;
++
++  /// Adds a new ENDBR instruction to the beginning of the MBB.
++  /// The function will not add it if already exists.
++  /// It will add ENDBR32 or ENDBR64 opcode, depending on the target.
++  /// \returns true if the ENDBR was added and false otherwise.
++  bool addENDBR(MachineBasicBlock &MBB, MachineBasicBlock::iterator I) const;
++
++  /// Populate the PLT metadata entry with the hash for linker PLT generation.
++  bool populatePLTMetadataEntry(MachineFunction &MF) const;
++
++  /// Populate a stub with a FineIBT hash check
++  bool populateStub(MachineFunction &MF) const;
++
++  /// Adds the FineIBT hash set operations before indirect calls.
++  bool addHashSets(MachineFunction &MF) const;
++};
++
++} // end anonymous namespace
++
++char X86FineIBTPass::ID = 0;
++
++FunctionPass *llvm::createX86FineIBTPass() {
++  return new X86FineIBTPass();
++}
++
++// main is called from libc through an opaque pointer, thus always coarse.
++static bool isAlwaysCoarse(StringRef name) {
++  if (name.equals("main"))
++    return true;
++  return false;
++}
++
++// shamelessly copied from MaskKCFIType, except for the -Value black magic.
++static uint32_t maskFineIBTHash(uint32_t Value) {
++  const uint32_t InvalidValues[] = {
++      0xFA1E0FF3, /* ENDBR64 */
++      0xFB1E0FF3, /* ENDBR32 */
++  };
++  for (uint32_t N : InvalidValues) {
++    if (N == Value)
++      return Value + 1;
++  }
++  return Value;
++}
++
++MachineInstr *X86FineIBTPass::emitNop(MachineBasicBlock &MBB,
++                                      MachineBasicBlock::iterator MI,
++                                      unsigned size) const {
++  // Adapted from X86MCInstLower::emitNop
++  unsigned Opc, BaseReg, ScaleVal, IndexReg, Displacement, SegmentReg;
++  IndexReg = Displacement = SegmentReg = 0;
++  BaseReg = X86::RAX;
++  ScaleVal = 1;
++  switch (size) {
++  case 1:
++    Opc = X86::NOOP;
++    break;
++  case 2:
++    Opc = X86::XCHG16ar;
++    break;
++  case 3:
++    Opc = X86::NOOPL;
++    break;
++  case 4:
++    Opc = X86::NOOPL;
++    Displacement = 8;
++    break;
++  case 5:
++    Opc = X86::NOOPL;
++    Displacement = 8;
++    IndexReg = X86::RAX;
++    break;
++  case 6:
++    Opc = X86::NOOPW;
++    Displacement = 8;
++    IndexReg = X86::RAX;
++    break;
++  case 7:
++    Opc = X86::NOOPL;
++    Displacement = 512;
++    break;
++  case 8:
++    Opc = X86::NOOPL;
++    Displacement = 512;
++    IndexReg = X86::RAX;
++    break;
++  case 9:
++    Opc = X86::NOOPW;
++    Displacement = 512;
++    IndexReg = X86::RAX;
++    break;
++  case 10:
++    Opc = X86::NOOPW;
++    Displacement = 512;
++    IndexReg = X86::RAX;
++    SegmentReg = X86::CS;
++    break;
++  default:
++    llvm_unreachable("unsupported NOP size");
++  }
++
++  const DebugLoc &DbgLoc = MBB.findDebugLoc(MI);
++  MachineInstr *NewMI = nullptr;
++  switch (Opc) {
++  case X86::XCHG16ar:
++    NewMI =
++        BuildMI(MBB, MI, DbgLoc, TII->get(Opc)).addReg(X86::AX).addReg(X86::AX);
++    break;
++  case X86::NOOP:
++    NewMI = BuildMI(MBB, MI, DbgLoc, TII->get(Opc));
++    break;
++  case X86::NOOPL:
++  case X86::NOOPW:
++    NewMI = BuildMI(MBB, MI, DbgLoc, TII->get(Opc))
++                .addReg(BaseReg)
++                .addImm(ScaleVal)
++                .addReg(IndexReg)
++                .addImm(Displacement)
++                .addReg(SegmentReg);
++    break;
++  default:
++    llvm_unreachable("unknown opc");
++  }
++
++  return NewMI;
++}
++
++bool X86FineIBTPass::addENDBR(
++    MachineBasicBlock &MBB, MachineBasicBlock::iterator I) const {
++  assert(TII && "Target instruction info was not initialized");
++
++  const unsigned int EndbrOpcode = X86::ENDBR64;
++
++  // If the MBB/I is empty or the current instruction is not ENDBR,
++  // insert ENDBR instruction to the location of I.
++  if (I == MBB.end() || I->getOpcode() != EndbrOpcode) {
++    BuildMI(MBB, I, MBB.findDebugLoc(I), TII->get(EndbrOpcode));
++    ++NumEndBranchAdded;
++    return true;
++  }
++  return false;
++}
++
++bool X86FineIBTPass::populatePLTMetadataEntry(
++    MachineFunction &MF) const {
++  // XXX: Do we need to handle "static weak function corner case"?
++  // For more reference look at github.com/intel/fineibt_llvm
++
++  assert(MF.getFunction().getSection() == ".fineibt.plthashes");
++  assert(MF.getName().starts_with("__fineibt_plthash_"));
++  assert(MF.getFunction().getAlign() == Align(8));
++
++  MF.setAlignment(Align(8));
++
++  Function &F = MF.getFunction();
++  ConstantInt *Hash = nullptr;
++  if (const MDNode *MD = F.getMetadata(LLVMContext::MD_cfi_type))
++    Hash = mdconst::extract<ConstantInt>(MD->getOperand(0));
++  if (!Hash) {
++    llvm::errs() << "X86FineIBT: Hash not found for PLT stub " << MF.getName()
++                 << "\n";
++    return false;
++  }
++
++  auto MBB = MF.begin();
++  auto I = MBB->begin();
++
++  // Pad so 4-byte hash ends up in last 8 bytes of this entry.
++  emitNop(*MBB, I, 3);
++
++  // Emit 1-byte mov opcode with 4 bytes hash as immediate.
++  BuildMI(*MBB, I, MBB->findDebugLoc(I), TII->get(X86::MOV32ri), X86::RAX)
++      .addImm(maskFineIBTHash(Hash->getZExtValue()));
++
++  return true;
++}
++
++bool stubInstrIsPrologue(MachineInstr &MI) {
++  if (MI.getFlags() & (MachineInstr::FrameSetup | MachineInstr::FrameDestroy))
++    return true;
++  if (MI.getOpcode() == X86::CFI_INSTRUCTION)
++    return true;
++
++  // memcpy-like operations for byval args
++  switch (MI.getOpcode()) {
++  case X86::MOV8rm:
++  case X86::MOV8mr:
++  case X86::MOV16rm:
++  case X86::MOV16mr:
++  case X86::MOV32rm:
++  case X86::MOV32mr:
++  case X86::MOV64rm:
++  case X86::MOV64mr:
++  case X86::MOVAPSrm:
++  case X86::MOVAPSmr:
++  case X86::MOVUPSrm:
++  case X86::MOVUPSmr:
++  case X86::LD_F80m:
++  case X86::ST_FP80m:
++
++  case X86::LEA64r:
++  case X86::MOV32ri:
++  case X86::MOV32rr:
++  case X86::MOV64rr:
++  case X86::REP_MOVSQ_64:
++
++    return true;
++  default:
++    return false;
++  }
++}
++
++bool X86FineIBTPass::populateStub(MachineFunction &MF) const {
++  assert(MF.getFunction().getSection() == "fineibt_stub");
++  assert(!MF.getName().ends_with(".nocfi"));
++
++  bool Coarse = MF.getFunction().doesCoarseCfCheck() || isAlwaysCoarse(MF.getName());
++
++  errs() << "X86FineIBT: Populating stub " << MF.getName() << " coarse=" << Coarse << "\n";
++
++  // The stub itself is already inserted at the IR level, with a tailjmp to the
++  // original function. We use its target as a reference.
++  MachineBasicBlock &MBB = *MF.begin();
++  MF.setAlignment(Align(32));
++
++  // Get rid of useless memcpy's that's done for byval args. TODO more checks e.g. rsp
++  // XXX: Ugly - is there a way to prevent this from being emitted?
++  while (stubInstrIsPrologue(*MBB.begin()))
++      (*MBB.begin()).eraseFromParent();
++
++  MachineInstr &MI = *MBB.begin();
++  if (MI.getOpcode() != X86::TAILJMPd64) errs() << MBB;
++  assert(MI.getOpcode() == X86::TAILJMPd64);
++  MachineOperand &MOP = MI.getOperand(0);
++  assert(MOP.isGlobal());
++  const Function *Callee = cast<Function>(MOP.getGlobal());
++  assert(Callee->getName() == MF.getName().str() + ".nocfi");
++
++  // For coarse checks, simply insert an ENDBR in front of the existing tailjmp
++  if (Coarse) {
++    addENDBR(MBB, MI);
++    for (size_t i = 0; i < 23; i++)
++      BuildMI(&MBB, DebugLoc(), TII->get(X86::INT3));
++
++    return true;
++  }
++
++  ConstantInt *Hash = nullptr;
++  if (const MDNode *MD = MF.getFunction().getMetadata(LLVMContext::MD_cfi_type))
++    Hash = mdconst::extract<ConstantInt>(MD->getOperand(0));
++  if (!Hash) {
++    llvm::errs() << "X86FineIBT: Hash not found for " << MF.getName() << "\n";
++    return false;
++  }
++
++  MF.eraseCallSiteInfo(&MI);
++  MI.eraseFromParent();
++
++  // func:
++  //  MBB:
++  //   endbr64          # f3 0f 1e fa
++  //   sub r11d, hash   # 41 81 eb nn nn nn nn
++  //   je func.nocfi    # 0f 84 nn nn nn nn     RELOC func.nocfi
++  //   ud2              # 0f 0b
++  //   int3 * 13         #  pad from 19 to 32 bytes
++
++  MBB.addLiveIn(X86::R11);
++
++  // endbr64
++  BuildMI(&MBB, DebugLoc(), TII->get(X86::ENDBR64));
++
++  // sub r11d, hash
++  BuildMI(&MBB, DebugLoc(), TII->get(X86::SUB32ri), X86::R11D)
++      .addReg(X86::R11D, RegState::Undef)
++      .addImm(maskFineIBTHash(Hash->getZExtValue()));
++
++  // je func.nocfi
++  MachineInstr *Jmp = BuildMI(&MBB, DebugLoc(), TII->get(X86::JCC_4))
++           .addGlobalAddress(Callee)
++           .addImm(X86::COND_E);
++  Jmp->setDoNotRelax(true); // Force a direct reference instead of a relocation
++
++  // ud2
++  BuildMI(&MBB, DebugLoc(), TII->get(X86::TRAP));
++
++  // int3
++  for (size_t i = 0; i < 13; i++)
++    BuildMI(&MBB, DebugLoc(), TII->get(X86::INT3));
++
++  NumFineFunctions++;
++
++  return true;
++}
++
++bool X86FineIBTPass::addHashSets(
++    MachineFunction &MF) const {
++  bool Changed = false;
++  RegScavenger RS;
++  unsigned AuxReg;
++
++  const X86Subtarget &SubTarget = MF.getSubtarget<X86Subtarget>();
++  auto TII = SubTarget.getInstrInfo();
++
++  for (auto &MBB : MF) {
++    for (auto &I : MBB) {
++      unsigned Opcode = I.getOpcode();
++      if (Opcode != X86::CALL64r && Opcode != X86::CALL64m &&
++          Opcode != X86::TAILJMPr64 && Opcode != X86::TAILJMPr &&
++          Opcode != X86::TAILJMPm64 && Opcode != X86::TAILJMPm &&
++          Opcode != X86::TAILJMPm64_REX && Opcode != X86::TAILJMPr64_REX)
++        continue;
++
++      unsigned Hash = I.getCFIType();
++      if (!Hash) {
++        llvm::errs() << "X86FineIBT: Missing CFI type ID in " << MF.getName()
++                     << " (instruction " << I << ")\n";
++        llvm_unreachable("missing CFI type id");
++      }
++
++      // if R11 is used as a pointer, we need to use a different register.
++      MachineOperand &MO = I.getOperand(0);
++      if (MO.isReg() && MO.getReg() == X86::R11) {
++        RS.enterBasicBlockEnd(MBB);
++        RS.backward(I); // Move to point before entering the call.
++        AuxReg = RS.FindUnusedReg(&X86::GR64RegClass);
++        if (!AuxReg) {
++          // TODO: this case needs to be fixed with register scavenging.
++          llvm::errs() << "X86FineIBT: No register available in " << MF.getName()
++                       << ".\n";
++          llvm_unreachable("X86FineIBT: unable to scavenge register");
++          continue;
++        }
++        // Set the call to use the new register
++        MO.setReg(AuxReg);
++        // Move the pointer into the new register
++        BuildMI(MBB, I, DebugLoc(), TII->get(X86::MOV64rr), AuxReg)
++            .addReg(X86::R11);
++      }
++
++      // for CALL64m/TAILJMPm we need to also check the second register
++      if (Opcode == X86::CALL64m || Opcode == X86::TAILJMPm64) {
++        MachineOperand &MO = I.getOperand(2);
++        if (MO.isReg() && MO.getReg() == X86::R11) {
++          RegScavenger RS;
++          RS.enterBasicBlockEnd(MBB);
++          RS.backward(I);
++          AuxReg = RS.FindUnusedReg(&X86::GR64RegClass);
++          if (!AuxReg) {
++            llvm::errs() << "X86FineIBT: No register available in " << MF.getName()
++                         << ".\n";
++            llvm_unreachable("X86FineIBT: unable to scavenge register");
++            continue;
++          }
++          // Set the call to use the new register
++          MO.setReg(AuxReg);
++          // Move the pointer into the new register
++          BuildMI(MBB, I, DebugLoc(), TII->get(X86::MOV64rr), AuxReg)
++              .addReg(X86::R11);
++        }
++      }
++
++      Changed = true;
++      BuildMI(MBB, I, DebugLoc(), TII->get(X86::MOV64ri), X86::R11)
++          .addImm(Hash);
++    }
++  }
++  return Changed;
++}
++
++static bool IsCallReturnTwice(llvm::MachineOperand &MOp) {
++  if (!MOp.isGlobal())
++    return false;
++  auto *CalleeFn = dyn_cast<Function>(MOp.getGlobal());
++  if (!CalleeFn)
++    return false;
++  AttributeList Attrs = CalleeFn->getAttributes();
++  return Attrs.hasFnAttr(Attribute::ReturnsTwice);
++}
++
++bool X86FineIBTPass::runOnMachineFunction(MachineFunction &MF) {
++  const X86Subtarget &SubTarget = MF.getSubtarget<X86Subtarget>();
++
++  const Module *M = MF.getMMI().getModule();
++  Metadata *isCFProtectionSupported = M->getModuleFlag("cf-protection-branch");
++  Metadata *isFineIBT = M->getModuleFlag("fineibt");
++
++  if (!isFineIBT && !EnableFineIBT)
++    return false;
++
++  if (isFineIBT && !isCFProtectionSupported)
++    llvm_unreachable("FineIBT requires IBT support");
++
++  TII = SubTarget.getInstrInfo();
++  if (!SubTarget.is64Bit())
++    llvm_unreachable("FineIBT is only supported on 64-bit");
++
++  errs() << "X86FineIBT: Instrumenting " << MF.getName() << "\n";
++
++  // Handle FineIBT PLT metadata for linker separately
++  if (MF.getFunction().getSection() == ".fineibt.plthashes")
++    return populatePLTMetadataEntry(MF);
++
++  // Handle populating stubs with a FineIBT check
++  if (MF.getFunction().getSection() == "fineibt_stub")
++    return populateStub(MF);
++
++  // For normal functions, add hash assigns before every indirect branch.
++  bool Changed = addHashSets(MF);
++
++  // And handle any compatibility cases that require ENDBRs
++  for (auto &MBB : MF) {
++    // Find all basic blocks that their address was taken (for example
++    // in the case of indirect jump) and add ENDBR instruction.
++    if (MBB.hasAddressTaken()) {
++      errs() << "X86FineIBT: Addr-taken BB\n";
++      llvm_unreachable("Addr-taken BB");
++      Changed |= addENDBR(MBB, MBB.begin());
++    }
++
++    for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
++      if (I->isCall() && I->getNumOperands() > 0 &&
++          IsCallReturnTwice(I->getOperand(0))) {
++        errs() << "X86FineIBT: Return-twice call " << *I << "\n";
++        //llvm_unreachable("Return-twice call");
++        Changed |= addENDBR(MBB, std::next(I));
++      }
++    }
++
++    // Exception handle may indirectly jump to catch pad, So we should add
++    // ENDBR before catch pad instructions. For SjLj exception model, it will
++    // create a new BB(new landingpad) indirectly jump to the old landingpad.
++    const X86TargetMachine *TM =
++      static_cast<const X86TargetMachine *>(&MF.getTarget());
++    if (TM->Options.ExceptionModel == ExceptionHandling::SjLj) {
++      for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
++        // New Landingpad BB without EHLabel.
++        if (MBB.isEHPad()) {
++          if (I->isDebugInstr())
++            continue;
++          errs() << "X86FineIBT: EH-pad1 " << *I << "\n";
++          llvm_unreachable("EH-pad1");
++          Changed |= addENDBR(MBB, I);
++          break;
++        } else if (I->isEHLabel()) {
++          // Old Landingpad BB (is not Landingpad now) with
++          // the the old "callee" EHLabel.
++          MCSymbol *Sym = I->getOperand(0).getMCSymbol();
++          if (!MF.hasCallSiteLandingPad(Sym))
++            continue;
++          errs() << "X86FineIBT: EH-pad2 " << *I << "\n";
++          llvm_unreachable("EH-pad2");
++          Changed |= addENDBR(MBB, std::next(I));
++          break;
++        }
++      }
++    } else if (MBB.isEHPad()) {
++      for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
++        if (!I->isEHLabel())
++          continue;
++          errs() << "X86FineIBT: EH-pad3 " << *I << "\n";
++          llvm_unreachable("EH-pad3");
++        Changed |= addENDBR(MBB, std::next(I));
++        break;
++      }
++    }
++  }
++  return Changed;
++}
+diff --git a/llvm/lib/Target/X86/X86IndirectBranchTracking.cpp b/llvm/lib/Target/X86/X86IndirectBranchTracking.cpp
+index 785bdd83cd99..939d29c2566f 100644
+--- a/llvm/lib/Target/X86/X86IndirectBranchTracking.cpp
++++ b/llvm/lib/Target/X86/X86IndirectBranchTracking.cpp
+@@ -116,6 +116,12 @@ bool X86IndirectBranchTrackingPass::runOnMachineFunction(MachineFunction &MF) {
+   const X86Subtarget &SubTarget = MF.getSubtarget<X86Subtarget>();
+ 
+   const Module *M = MF.getMMI().getModule();
++
++  // Don't interfere with FineIBT, which handles its own ENDBR insertion.
++  Metadata *isFineIBT = M->getModuleFlag("fineibt");
++  if (isFineIBT)
++    return false;
++
+   // Check that the cf-protection-branch is enabled.
+   Metadata *isCFProtectionSupported = M->getModuleFlag("cf-protection-branch");
+ 
+diff --git a/llvm/lib/Target/X86/X86MCInstLower.cpp b/llvm/lib/Target/X86/X86MCInstLower.cpp
+index 58ebe023cd61..490af0662bed 100644
+--- a/llvm/lib/Target/X86/X86MCInstLower.cpp
++++ b/llvm/lib/Target/X86/X86MCInstLower.cpp
+@@ -396,6 +396,12 @@ static unsigned convertTailJumpOpcode(unsigned Opcode) {
+ void X86MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
+   OutMI.setOpcode(MI->getOpcode());
+ 
++  if (MI->getDoNotRelax()) {
++    unsigned Flags = OutMI.getFlags();
++    Flags |= X86::EXTRA_DO_NOT_RELAX;
++    OutMI.setFlags(Flags);
++  }
++
+   for (const MachineOperand &MO : MI->operands())
+     if (auto MaybeMCOp = LowerMachineOperand(MI, MO))
+       OutMI.addOperand(*MaybeMCOp);
+diff --git a/llvm/lib/Target/X86/X86TargetMachine.cpp b/llvm/lib/Target/X86/X86TargetMachine.cpp
+index 9e4cf1ea9968..4e0b1f9f2192 100644
+--- a/llvm/lib/Target/X86/X86TargetMachine.cpp
++++ b/llvm/lib/Target/X86/X86TargetMachine.cpp
+@@ -102,6 +102,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeX86Target() {
+   initializeX86ReturnThunksPass(PR);
+   initializeX86DAGToDAGISelPass(PR);
+   initializeX86ArgumentStackSlotPassPass(PR);
++  initializeFineIBTPass(PR);
+ }
+ 
+ static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
+@@ -467,6 +468,9 @@ void X86PassConfig::addIRPasses() {
+     }
+   }
+ 
++  if (TT.getArch() == Triple::x86_64)
++    addPass(createFineIBTPass());
++
+   if (TM->Options.JMCInstrument)
+     addPass(createJMCInstrumenterPass());
+ }
+@@ -568,6 +572,7 @@ void X86PassConfig::addPreEmitPass() {
+   }
+ 
+   addPass(createX86IndirectBranchTrackingPass());
++  addPass(createX86FineIBTPass());
+ 
+   addPass(createX86IssueVZeroUpperPass());
+ 
+diff --git a/llvm/lib/Transforms/Utils/CodeExtractor.cpp b/llvm/lib/Transforms/Utils/CodeExtractor.cpp
+index 278111883459..5c4a08803a02 100644
+--- a/llvm/lib/Transforms/Utils/CodeExtractor.cpp
++++ b/llvm/lib/Transforms/Utils/CodeExtractor.cpp
+@@ -965,6 +965,7 @@ Function *CodeExtractor::constructFunction(const ValueSet &inputs,
+       case Attribute::UWTable:
+       case Attribute::VScaleRange:
+       case Attribute::NoCfCheck:
++      case Attribute::CoarseCfCheck:
+       case Attribute::MustProgress:
+       case Attribute::NoProfile:
+       case Attribute::SkipProfile:
+-- 
+2.34.1
+

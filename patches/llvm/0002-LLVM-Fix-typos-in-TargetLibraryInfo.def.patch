@@ -1,0 +1,52 @@
+From d00c199b1394c2bbd5177f5f07288db96e9267f0 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Thu, 27 Jul 2023 06:55:39 -0700
+Subject: [PATCH 2/9] LLVM: Fix typos in TargetLibraryInfo.def
+
+---
+ llvm/include/llvm/Analysis/TargetLibraryInfo.def | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/llvm/include/llvm/Analysis/TargetLibraryInfo.def b/llvm/include/llvm/Analysis/TargetLibraryInfo.def
+index 6bd922eed89e..020a19a26dc5 100644
+--- a/llvm/include/llvm/Analysis/TargetLibraryInfo.def
++++ b/llvm/include/llvm/Analysis/TargetLibraryInfo.def
+@@ -623,7 +623,7 @@ TLI_DEFINE_ENUM_INTERNAL(memset_chk)
+ TLI_DEFINE_STRING_INTERNAL("__memset_chk")
+ TLI_DEFINE_SIG_INTERNAL(Ptr, Ptr, Int, SizeT, SizeT)
+ 
+-// int __nvvm_reflect(const char *)
++/// int __nvvm_reflect(const char *);
+ TLI_DEFINE_ENUM_INTERNAL(nvvm_reflect)
+ TLI_DEFINE_STRING_INTERNAL("__nvvm_reflect")
+ TLI_DEFINE_SIG_INTERNAL(Int, Ptr)
+@@ -633,7 +633,7 @@ TLI_DEFINE_ENUM_INTERNAL(pow_finite)
+ TLI_DEFINE_STRING_INTERNAL("__pow_finite")
+ TLI_DEFINE_SIG_INTERNAL(Dbl, Dbl, Dbl)
+ 
+-/// float _powf_finite(float x, float y);
++/// float __powf_finite(float x, float y);
+ TLI_DEFINE_ENUM_INTERNAL(powf_finite)
+ TLI_DEFINE_STRING_INTERNAL("__powf_finite")
+ TLI_DEFINE_SIG_INTERNAL(Flt, Flt, Flt)
+@@ -658,7 +658,7 @@ TLI_DEFINE_ENUM_INTERNAL(sinh_finite)
+ TLI_DEFINE_STRING_INTERNAL("__sinh_finite")
+ TLI_DEFINE_SIG_INTERNAL(Dbl, Dbl)
+ 
+-/// float _sinhf_finite(float x);
++/// float __sinhf_finite(float x);
+ TLI_DEFINE_ENUM_INTERNAL(sinhf_finite)
+ TLI_DEFINE_STRING_INTERNAL("__sinhf_finite")
+ TLI_DEFINE_SIG_INTERNAL(Flt, Flt)
+@@ -1642,7 +1642,7 @@ TLI_DEFINE_ENUM_INTERNAL(log2f)
+ TLI_DEFINE_STRING_INTERNAL("log2f")
+ TLI_DEFINE_SIG_INTERNAL(Flt, Flt)
+ 
+-/// double long double log2l(long double x);
++/// long double log2l(long double x);
+ TLI_DEFINE_ENUM_INTERNAL(log2l)
+ TLI_DEFINE_STRING_INTERNAL("log2l")
+ TLI_DEFINE_SIG_INTERNAL(LDbl, LDbl)
+-- 
+2.34.1
+

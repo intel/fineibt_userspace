@@ -1,0 +1,42 @@
+From 05c0dbcdccd1cddf5aa9abc535a1e60ce9feca84 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Tue, 9 Apr 2024 16:09:19 +0200
+Subject: [PATCH 5/9] codegen: allow kcfi bundle and CFIType on invokes
+
+This is required for exception and C++ support for kCFI similar CFI
+systems.
+---
+ llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp | 3 ++-
+ llvm/lib/Target/X86/X86ISelLoweringCall.cpp           | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp b/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp
+index 5ce1013f30fd..48d1cf6e7e62 100644
+--- a/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp
+@@ -3138,7 +3138,8 @@ void SelectionDAGBuilder::visitInvoke(const InvokeInst &I) {
+              {LLVMContext::OB_deopt, LLVMContext::OB_gc_transition,
+               LLVMContext::OB_gc_live, LLVMContext::OB_funclet,
+               LLVMContext::OB_cfguardtarget,
+-              LLVMContext::OB_clang_arc_attachedcall}) &&
++              LLVMContext::OB_clang_arc_attachedcall,
++              LLVMContext::OB_kcfi}) &&
+          "Cannot lower invokes with arbitrary operand bundles yet!");
+ 
+   const Value *Callee(I.getCalledOperand());
+diff --git a/llvm/lib/Target/X86/X86ISelLoweringCall.cpp b/llvm/lib/Target/X86/X86ISelLoweringCall.cpp
+index d75bd4171fde..4cc8997eb399 100644
+--- a/llvm/lib/Target/X86/X86ISelLoweringCall.cpp
++++ b/llvm/lib/Target/X86/X86ISelLoweringCall.cpp
+@@ -2000,7 +2000,7 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+   bool HasNCSR = (CB && isa<CallInst>(CB) &&
+                   CB->hasFnAttr("no_caller_saved_registers"));
+   bool HasNoCfCheck = (CB && CB->doesNoCfCheck());
+-  bool IsIndirectCall = (CB && isa<CallInst>(CB) && CB->isIndirectCall());
++  bool IsIndirectCall = (CB && (isa<CallInst>(CB) || isa<InvokeInst>(CB)) && CB->isIndirectCall());
+   bool IsCFICall = IsIndirectCall && CLI.CFIType;
+   const Module *M = MF.getMMI().getModule();
+   Metadata *IsCFProtectionSupported = M->getModuleFlag("cf-protection-branch");
+-- 
+2.34.1
+

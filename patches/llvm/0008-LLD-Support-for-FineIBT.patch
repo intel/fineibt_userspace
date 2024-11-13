@@ -1,0 +1,568 @@
+From c110efcabdc91366761323d2a681f9f7a2b2e3c2 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Thu, 20 Apr 2023 13:40:15 -0700
+Subject: [PATCH 8/9] LLD: Support for FineIBT.
+
+This includes fixing up relocations, detecting function aliases, parsing
+CFI TypeIDs, generating PLT entries with correct FineIBT logic, and
+emiting .dynamic fields for the stub table.
+---
+ lld/ELF/Arch/X86_64.cpp       |  57 ++++++++++
+ lld/ELF/Config.h              |   9 ++
+ lld/ELF/Driver.cpp            | 202 +++++++++++++++++++++++++++++++++-
+ lld/ELF/InputSection.cpp      |   4 +-
+ lld/ELF/OutputSections.cpp    |   1 +
+ lld/ELF/OutputSections.h      |   1 +
+ lld/ELF/Relocations.cpp       |  39 +++++++
+ lld/ELF/SyntheticSections.cpp |  14 ++-
+ lld/ELF/Writer.cpp            |   5 +-
+ 9 files changed, 322 insertions(+), 10 deletions(-)
+
+diff --git a/lld/ELF/Arch/X86_64.cpp b/lld/ELF/Arch/X86_64.cpp
+index de459013595f..00b9737bcf3b 100644
+--- a/lld/ELF/Arch/X86_64.cpp
++++ b/lld/ELF/Arch/X86_64.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "OutputSections.h"
+ #include "Relocations.h"
++#include "SymbolTable.h"
+ #include "Symbols.h"
+ #include "SyntheticSections.h"
+ #include "Target.h"
+@@ -1103,6 +1104,50 @@ void IntelIBT::writeIBTPlt(uint8_t *buf, size_t numEntries) const {
+   }
+ }
+ 
++namespace {
++class IntelFineIBT : public X86_64 {
++public:
++  IntelFineIBT();
++  void writePlt(uint8_t *buf, const Symbol &sym, uint64_t pltEntryAddr) const override;
++};
++} //namespace
++
++IntelFineIBT::IntelFineIBT() {
++  pltHeaderSize = 0;
++  pltEntrySize = 16;
++}
++
++void IntelFineIBT::writePlt(uint8_t *buf, const Symbol &sym, uint64_t pltEntryAddr) const {
++  StringRef name = sym.getName();
++
++
++  // If no PLT hash information was present, or this symbol wasn't found in that
++  // information, emit a generic PLT entry.
++  if (!config->FineIBTHashes || !config->FineIBTHashes->count(name)) {
++    // TODO notrack to .nocfi version?
++    warn("No FineIBT hash found for " + name + "; emitting generic PLT entry");
++    const uint8_t Inst[] = {
++      0xff, 0x25, 0, 0, 0, 0,   // jmpq *got(%rip)
++      0xcc, 0xcc, 0xcc, 0xcc,   // nops to 16 byte
++      0xcc, 0xcc, 0xcc, 0xcc,
++      0xcc, 0xcc,
++    };
++    memcpy(buf, Inst, sizeof(Inst));
++    write32le(buf + 2, sym.getGotPltVA() - pltEntryAddr - 6);
++    return;
++  } else {
++    uint32_t hash = config->FineIBTHashes->lookup(name);
++    const uint8_t Inst[] = {
++      0x41, 0xbb, 0, 0, 0, 0,   // mov $hash, r11d
++      0xff, 0x25, 0, 0, 0, 0,   // jmpq *got(%rip)
++      0xcc, 0xcc, 0xcc, 0xcc,   // nops to 16 byte
++    };
++    memcpy(buf, Inst, sizeof(Inst));
++    write32le(buf + 2, hash);
++    write32le(buf + 8, sym.getGotPltVA() - pltEntryAddr - 12);
++  }
++}
++
+ // These nonstandard PLT entries are to migtigate Spectre v2 security
+ // vulnerability. In order to mitigate Spectre v2, we want to avoid indirect
+ // branch instructions such as `jmp *GOTPLT(%rip)`. So, in the following PLT
+@@ -1230,6 +1275,18 @@ static TargetInfo *getTargetInfo() {
+     return &t;
+   }
+ 
++  // TODO: we will disable mixed linking. fix this mess.
++  // There are situations where FineIBT and non-FineIBT object files are being
++  // linked. This will lead into a final DSO which is non-FineIBT (without the
++  // GNU_PROPERTY_X86_FEATURE_1_FINEIBT bit) but have some pieces optimized as
++  // FineIBT objects. Because of that, the PLT of this DSO still has to follow
++  // the FineIBT model. Thus, we use the config to map this setting instead of
++  // simply checking the bit.
++  if (config->FineIBT) {
++    static IntelFineIBT t;
++    return &t;
++  }
++
+   if (config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_IBT) {
+     static IntelIBT t;
+     return &t;
+diff --git a/lld/ELF/Config.h b/lld/ELF/Config.h
+index 3a4a47d900fe..b921f432a223 100644
+--- a/lld/ELF/Config.h
++++ b/lld/ELF/Config.h
+@@ -303,6 +303,7 @@ struct Config {
+   bool zCopyreloc;
+   bool zForceBti;
+   bool zForceIbt;
++  bool zForceFineIbt;
+   bool zGlobal;
+   bool zHazardplt;
+   bool zIfuncNoplt;
+@@ -412,6 +413,14 @@ struct Config {
+   // 4 for ELF32, 8 for ELF64.
+   int wordsize;
+ 
++  // True if should use FineIBT model for the PLT
++  bool FineIBT = false;
++
++  // Mapping of FineIBT hashes, for generating PLT entries
++  llvm::StringMap<uint32_t> *FineIBTHashes = NULL;
++  // Mapping of FineIBT stub to original .nocfi function
++  llvm::StringMap<Symbol*> *FineIBTStubMapping = nullptr;
++
+   // Mode of MTE to write to the ELF note. Should be one of NT_MEMTAG_ASYNC (for
+   // async), NT_MEMTAG_SYNC (for sync), or NT_MEMTAG_LEVEL_NONE (for none). If
+   // async or sync is enabled, write the ELF note specifying the default MTE
+diff --git a/lld/ELF/Driver.cpp b/lld/ELF/Driver.cpp
+index 8b2c32b15348..9912d0026a43 100644
+--- a/lld/ELF/Driver.cpp
++++ b/lld/ELF/Driver.cpp
+@@ -454,6 +454,9 @@ static void checkOptions() {
+   if (config->zRetpolineplt && config->zForceIbt)
+     error("-z force-ibt may not be used with -z retpolineplt");
+ 
++  if (config->zRetpolineplt && config->zForceFineIbt)
++    error("-z force-ibt may not be used with -z retpolineplt");
++
+   if (config->emachine != EM_AARCH64) {
+     if (config->zPacPlt)
+       error("-z pac-plt only supported on AArch64");
+@@ -1425,6 +1428,7 @@ static void readConfigs(opt::InputArgList &args) {
+   config->zCopyreloc = getZFlag(args, "copyreloc", "nocopyreloc", true);
+   config->zForceBti = hasZOption(args, "force-bti");
+   config->zForceIbt = hasZOption(args, "force-ibt");
++  config->zForceFineIbt = hasZOption(args, "force-fineibt");
+   config->zGlobal = hasZOption(args, "global");
+   config->zGnustack = getZGnuStack(args);
+   config->zHazardplt = hasZOption(args, "hazardplt");
+@@ -2584,6 +2588,11 @@ static uint32_t getAndFeatures() {
+         toString(f) + ": -z cet-report: file does not have "
+                       "GNU_PROPERTY_X86_FEATURE_1_IBT property");
+ 
++    checkAndReportMissingFeature(
++        config->zCetReport, features, GNU_PROPERTY_X86_FEATURE_1_FINEIBT,
++        toString(f) + ": -z cet-report: file does not have "
++                      "GNU_PROPERTY_X86_FEATURE_1_FINEIBT property");
++
+     checkAndReportMissingFeature(
+         config->zCetReport, features, GNU_PROPERTY_X86_FEATURE_1_SHSTK,
+         toString(f) + ": -z cet-report: file does not have "
+@@ -2594,13 +2603,22 @@ static uint32_t getAndFeatures() {
+       if (config->zBtiReport == "none")
+         warn(toString(f) + ": -z force-bti: file does not have "
+                            "GNU_PROPERTY_AARCH64_FEATURE_1_BTI property");
+-    } else if (config->zForceIbt &&
+-               !(features & GNU_PROPERTY_X86_FEATURE_1_IBT)) {
+-      if (config->zCetReport == "none")
+-        warn(toString(f) + ": -z force-ibt: file does not have "
+-                           "GNU_PROPERTY_X86_FEATURE_1_IBT property");
+-      features |= GNU_PROPERTY_X86_FEATURE_1_IBT;
++    } else {
++      if (config->zForceIbt &&
++                 !(features & GNU_PROPERTY_X86_FEATURE_1_IBT)) {
++        if (config->zCetReport == "none")
++          warn(toString(f) + ": -z force-ibt: file does not have "
++                             "GNU_PROPERTY_X86_FEATURE_1_IBT property");
++        features |= GNU_PROPERTY_X86_FEATURE_1_IBT;
++      }
++      if (config->zForceFineIbt &&
++          !(features & GNU_PROPERTY_X86_FEATURE_1_FINEIBT)) {
++        warn(toString(f) + ": -z force-fineibt: file does not have "
++                           "GNU_PROPERTY_X86_FEATURE_1_FINEIBT property");
++        features |= GNU_PROPERTY_X86_FEATURE_1_FINEIBT;
++      }
+     }
++
+     if (config->zPacPlt && !(features & GNU_PROPERTY_AARCH64_FEATURE_1_PAC)) {
+       warn(toString(f) + ": -z pac-plt: file does not have "
+                          "GNU_PROPERTY_AARCH64_FEATURE_1_PAC property");
+@@ -2613,9 +2631,155 @@ static uint32_t getAndFeatures() {
+   if (config->zShstk)
+     ret |= GNU_PROPERTY_X86_FEATURE_1_SHSTK;
+ 
++  // If IBT is off, disable FINEIBT.
++  if (!(ret & GNU_PROPERTY_X86_FEATURE_1_IBT) && (ret & GNU_PROPERTY_X86_FEATURE_1_FINEIBT)) {
++    warn("FineIBT disabled because GNU_PROPERTY_X86_FEATURE_1_IBT is off");
++    ret &= !(GNU_PROPERTY_X86_FEATURE_1_FINEIBT);
++  }
++
+   return ret;
+ }
+ 
++static Symbol *getEnclosingFunction(uint64_t offset, InputSectionBase *s) {
++  for (Symbol *b : s->file->getSymbols()) {
++    if (Defined *d = dyn_cast<Defined>(b)) {
++      if (d->section == s && d->type == STT_FUNC && d->value <= offset &&
++          offset < d->value + d->size) {
++        return d;
++      }
++    }
++  }
++  return nullptr;
++}
++
++static bool hasFineIBT() {
++  if (config->emachine != EM_X86_64) return false;
++
++  bool hasFineIBTObjects = false;
++  bool outputHasFineIBT =
++      config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_FINEIBT;
++
++  for (ELFFileBase *f : ctx.objectFiles) {
++    uint32_t features = f->andFeatures;
++    if (features & GNU_PROPERTY_X86_FEATURE_1_FINEIBT)
++      hasFineIBTObjects = true;
++  }
++
++  if (hasFineIBTObjects && !outputHasFineIBT)
++    fatal("Unable to link both FineIBT and non-FineIBT objects. "
++          "Use -z cet-report=warning to find incompatible objects, or use "
++          "-z force-fineibt to override.");
++
++  // if linking final DSO, verify if eager binding is set.
++  // only enforce if all object files are FINEIBT enabled.
++  if (config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_FINEIBT) {
++    if (!config->isStatic && !config->relocatable && !config->zNow)
++      fatal("Dynamic FineIBT DSOs require eager binding (-z now).");
++  }
++
++  return hasFineIBTObjects || outputHasFineIBT;
++}
++
++static void parseFineIBTHashes(InputSectionBase *s) {
++  const unsigned ENTRY_SIZE = 8;
++  const unsigned ENTRY_HASH_OFFSET = 4;
++  const char section_name[] = ".fineibt.plthashes";
++  const char symbol_prefix[] = "__fineibt_plthash_";
++
++  if (!(s && s->name == section_name))
++    fatal("FineIBT: Trying to build hash list out of the wrong section "
++          "(expected '" + StringRef(section_name) + "', got '" +
++          StringRef(s->name) + "')");
++
++  if (!config->FineIBTHashes)
++    config->FineIBTHashes = new StringMap<uint32_t>;
++
++  auto data = s->content().data();
++
++  for (long unsigned int offset = ENTRY_HASH_OFFSET;
++       offset < s->content().size();
++       offset += ENTRY_SIZE) {
++
++    // Check if this entry corresponds to a symbol
++    Symbol *sym = getEnclosingFunction(offset, s);
++    if (!sym)
++      continue;
++
++    StringRef name = sym->getName();
++    if (!name.startswith(symbol_prefix)) {
++      warn("FineIBT: Unknown symbol '" + name + "' in '" + section_name +
++           "' section");
++      continue;
++    }
++    name = name.drop_front(strlen(symbol_prefix));
++
++    if (config->FineIBTHashes->count(name)) {
++      warn("FineIBT: Duplicate PLT metadata entry '" + name + "' in '" +
++            section_name + "' section");
++    } else {
++      uint32_t hash;
++      memcpy(&hash, &data[offset], sizeof(uint32_t));
++      config->FineIBTHashes->try_emplace(name, hash);
++    }
++  }
++}
++
++static void parseFineIBTStubSyms(InputSectionBase *section) {
++  const char section_name[] = "fineibt_stub";
++
++  if (!(section && section->name == section_name))
++    fatal("FineIBT: Trying to build stub alias mapping out of the wrong "
++          "section (expected '" + StringRef(section_name) + "', got '" +
++          StringRef(section->name) + "')");
++
++  if (!config->FineIBTStubMapping)
++    config->FineIBTStubMapping = new StringMap<Symbol*>;
++
++  // First pre-construct a mapping with all .nocfi functions, to avoid looping
++  // over all symbols every time in the next loop.
++  StringMap<Symbol*> nocfiSyms;
++  for (Symbol *s : section->file->getSymbols()) {
++    if (s->getName().ends_with(".nocfi"))
++      nocfiSyms.try_emplace(s->getName(), s);
++  }
++
++  // Next, populate the global mapping, going over all stubs and finding its
++  // corresponding .nocfi function.
++  for (Symbol *s : section->file->getSymbols()) {
++    Defined *d = dyn_cast<Defined>(s);
++    if (!d || d->section != section || d->type != STT_FUNC)
++      continue;
++    std::string nocfiName = std::string(s->getName()) + ".nocfi";
++    if (Symbol *nocfiSym = nocfiSyms.lookup(nocfiName)) {
++      // Common case: func -> func.nocfi
++      config->FineIBTStubMapping->try_emplace(s->getName(), nocfiSym);
++    } else {
++      // func.nocfi did not exist, this may be because func is an alias for
++      // another symbol. Thus, scan all symbols at the same locations for a
++      // corresponding .nocfi function.
++      Symbol *AliasSym = nullptr;
++      for (Symbol *ss : section->file->getSymbols()) {
++        if (s == ss)
++          continue;
++        Defined *dd = dyn_cast<Defined>(ss);
++        if (!dd || dd->section != section || dd->type != STT_FUNC)
++          continue;
++        if (d->value == dd->value) {
++          std::string aliasNocfiName = std::string(ss->getName()) + ".nocfi";
++          AliasSym = nocfiSyms.lookup(aliasNocfiName);
++          if (AliasSym)
++            break;
++        }
++      }
++      if (AliasSym)
++        config->FineIBTStubMapping->try_emplace(s->getName(), AliasSym);
++      else
++        warn("Could not find corresponding .nocfi function for stub " +
++             s->getName());
++    }
++  }
++}
++
+ static void initSectionsAndLocalSyms(ELFFileBase *file, bool ignoreComdats) {
+   switch (file->ekind) {
+   case ELF32LEKind:
+@@ -2955,11 +3119,37 @@ void LinkerDriver::link(opt::InputArgList &args) {
+   // contain a hint to tweak linker's and loader's behaviors.
+   config->andFeatures = getAndFeatures();
+ 
++  // Check if all to-be-linked objects have FineIBT. There are situations where
++  // FineIBT and non-FineIBT object files are being linked, potentially leading
++  // into broken final DSOs. In those cases where this is intentional, we still
++  // need to identify the hashes so we can build a solid plt table.
++  config->FineIBT = hasFineIBT();
++
+   // The Target instance handles target-specific stuff, such as applying
+   // relocations or writing a PLT section. It also contains target-dependent
+   // values such as a default image base address.
+   target = getTarget();
+ 
++  // For FineIBT, parse the hashes found inside .fineibt.plthashes, so these can
++  // later be used to generate PLT entries correctly. We then make sure this
++  // section is discarded from the final linked object.
++  if (config->FineIBT) {
++    for (InputFile *f : ctx.objectFiles) {
++      for (InputSectionBase *s : f->getSections()) {
++        if (!s)
++          continue;
++        if (s->name == ".fineibt.plthashes") {
++          parseFineIBTHashes(s);
++          // final DSOs don't need the .fineibt.plthashes section.
++          if (!config->isStatic && !config->relocatable)
++            *s = InputSection::discarded;
++        } else if (s->name == "fineibt_stub") {
++          parseFineIBTStubSyms(s);
++        }
++      }
++    }
++  }
++
+   config->eflags = target->calcEFlags();
+   // maxPageSize (sometimes called abi page size) is the maximum page size that
+   // the output can be run on. For example if the OS can use 4k or 64k page
+diff --git a/lld/ELF/InputSection.cpp b/lld/ELF/InputSection.cpp
+index e033a715b592..824ad02127a5 100644
+--- a/lld/ELF/InputSection.cpp
++++ b/lld/ELF/InputSection.cpp
+@@ -265,7 +265,7 @@ std::string InputSectionBase::getLocation(uint64_t offset) const {
+     return (config->outputFile + ":(" + secAndOffset).str();
+ 
+   std::string filename = toString(file);
+-  if (Defined *d = getEnclosingFunction(offset))
++  if (Defined *d = this->getEnclosingFunction(offset))
+     return filename + ":(function " + toString(*d) + ": " + secAndOffset;
+ 
+   return filename + ":(" + secAndOffset;
+@@ -1145,7 +1145,7 @@ void InputSectionBase::adjustSplitStackFunctionPrologues(uint8_t *buf,
+     if (enclosingPrologueAttempted(rel.offset, prologues))
+       continue;
+ 
+-    if (Defined *f = getEnclosingFunction(rel.offset)) {
++    if (Defined *f = this->getEnclosingFunction(rel.offset)) {
+       prologues.insert(f);
+       if (target->adjustPrologueForCrossSplitStack(buf + f->value, end,
+                                                    f->stOther))
+diff --git a/lld/ELF/OutputSections.cpp b/lld/ELF/OutputSections.cpp
+index ee9374186787..b6f0c767e30b 100644
+--- a/lld/ELF/OutputSections.cpp
++++ b/lld/ELF/OutputSections.cpp
+@@ -45,6 +45,7 @@ OutputSection *Out::programHeaders;
+ OutputSection *Out::preinitArray;
+ OutputSection *Out::initArray;
+ OutputSection *Out::finiArray;
++OutputSection *Out::fineIBTStub;
+ 
+ SmallVector<OutputSection *, 0> elf::outputSections;
+ 
+diff --git a/lld/ELF/OutputSections.h b/lld/ELF/OutputSections.h
+index c7931471a6ed..c19106b18183 100644
+--- a/lld/ELF/OutputSections.h
++++ b/lld/ELF/OutputSections.h
+@@ -153,6 +153,7 @@ struct Out {
+   static OutputSection *preinitArray;
+   static OutputSection *initArray;
+   static OutputSection *finiArray;
++  static OutputSection *fineIBTStub;
+ };
+ 
+ uint64_t getHeaderSize();
+diff --git a/lld/ELF/Relocations.cpp b/lld/ELF/Relocations.cpp
+index 619fbaf5dc54..09db71b1fcd1 100644
+--- a/lld/ELF/Relocations.cpp
++++ b/lld/ELF/Relocations.cpp
+@@ -473,6 +473,8 @@ private:
+   int64_t computeMipsAddend(const RelTy &rel, RelExpr expr, bool isLocal) const;
+   bool isStaticLinkTimeConstant(RelExpr e, RelType type, const Symbol &sym,
+                                 uint64_t relOff) const;
++  bool shouldRewriteToNocfiSymbol(RelExpr e, RelType type, const Symbol &sym,
++                                  uint64_t relOff) const;
+   void processAux(RelExpr expr, RelType type, uint64_t offset, Symbol &sym,
+                   int64_t addend) const;
+   template <class ELFT, class RelTy> void scanOne(RelTy *&i);
+@@ -1035,6 +1037,24 @@ bool RelocationScanner::isStaticLinkTimeConstant(RelExpr e, RelType type,
+   return true;
+ }
+ 
++bool RelocationScanner::shouldRewriteToNocfiSymbol(RelExpr e, RelType type,
++                                                   const Symbol &sym,
++                                                   uint64_t relOff) const {
++  if (e != R_PC)
++    return false;
++
++  if (type != R_X86_64_PLT32)
++    return false;
++
++  if (sym.getName() == "")
++    return false;
++
++  if (sym.getName().ends_with(".nocfi"))
++    return false;
++
++  return true;
++}
++
+ // The reason we have to do this early scan is as follows
+ // * To mmap the output file, we need to know the size
+ // * For that, we need to know how many dynamic relocs we will have.
+@@ -1053,6 +1073,7 @@ void RelocationScanner::processAux(RelExpr expr, RelType type, uint64_t offset,
+   // If non-ifunc non-preemptible, change PLT to direct call and optimize GOT
+   // indirection.
+   const bool isIfunc = sym.isGnuIFunc();
++
+   if (!sym.isPreemptible && (!isIfunc || config->zIfuncNoplt)) {
+     if (expr != R_GOT_PC) {
+       // The 0x8000 bit of r_addend of R_PPC_PLTREL24 is used to choose call
+@@ -1106,6 +1127,24 @@ void RelocationScanner::processAux(RelExpr expr, RelType type, uint64_t offset,
+     sym.setFlags(HAS_DIRECT_RELOC);
+   }
+ 
++  // For link-time constant relocations within direct calls, we need to rewrite
++  // the symbol to its .nocfi variant, which skips the CFI checks. If we don't
++  // do this, the check (inside the non-.nocfi variant) fails because the caller
++  // did not prepare the appropriate metadata. We can only do this here in the
++  // linker, because the symbol might have also come from a dynamic library that
++  // requires a PLT (which should not be renamed to .nocfi).
++  if (config->FineIBT && config->FineIBTStubMapping &&
++      shouldRewriteToNocfiSymbol(expr, type, sym, offset)) {
++    Symbol *nocfiSym = config->FineIBTStubMapping->lookup(sym.getName());
++    if (!nocfiSym) {
++      warn("Could not find corresponding .nocfi function for " +
++            sym.getName() + ", required for fixing up relocation");
++    } else {
++      sec->addReloc({expr, type, offset, addend, nocfiSym});
++      return;
++    }
++  }
++
+   // If the relocation is known to be a link-time constant, we know no dynamic
+   // relocation will be created, pass the control to relocateAlloc() or
+   // relocateNonAlloc() to resolve it.
+diff --git a/lld/ELF/SyntheticSections.cpp b/lld/ELF/SyntheticSections.cpp
+index bada394aa30d..3dc75ea0416e 100644
+--- a/lld/ELF/SyntheticSections.cpp
++++ b/lld/ELF/SyntheticSections.cpp
+@@ -1465,6 +1465,17 @@ DynamicSection<ELFT>::computeContents() {
+     }
+   }
+ 
++#define DT_X86_64_FINEIBT_STUB		(DT_LOPROC + 0)
++#define DT_X86_64_FINEIBT_STUBSZ	(DT_LOPROC + 1)
++#define DT_X86_64_FINEIBT_STUBENT	(DT_LOPROC + 2)
++  if (config->emachine == EM_X86_64) {
++    if (config->FineIBT && Out::fineIBTStub) {
++      addInt(DT_X86_64_FINEIBT_STUB, Out::fineIBTStub->addr);
++      addInt(DT_X86_64_FINEIBT_STUBSZ, Out::fineIBTStub->size);
++      addInt(DT_X86_64_FINEIBT_STUBENT, 32); // TODO: don't hardcode this here?
++    }
++  }
++
+   addInSec(DT_SYMTAB, *part.dynSymTab);
+   addInt(DT_SYMENT, sizeof(Elf_Sym));
+   addInSec(DT_STRTAB, *part.dynStrTab);
+@@ -2525,7 +2536,8 @@ PltSection::PltSection()
+   // On x86 when IBT is enabled, this section contains the second PLT (lazy
+   // symbol resolvers).
+   if ((config->emachine == EM_386 || config->emachine == EM_X86_64) &&
+-      (config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_IBT))
++      (config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_IBT) &&
++      (!(config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_FINEIBT)))
+     name = ".plt.sec";
+ 
+   // The PLT needs to be writable on SPARC as the dynamic linker will
+diff --git a/lld/ELF/Writer.cpp b/lld/ELF/Writer.cpp
+index 6df43a34be01..e95b0fd51376 100644
+--- a/lld/ELF/Writer.cpp
++++ b/lld/ELF/Writer.cpp
+@@ -324,6 +324,7 @@ template <class ELFT> void elf::createSyntheticSections() {
+   Out::preinitArray = nullptr;
+   Out::initArray = nullptr;
+   Out::finiArray = nullptr;
++  Out::fineIBTStub = nullptr;
+ 
+   // Add the .interp section first because it is not a SyntheticSection.
+   // The removeUnusedSyntheticSections() function relies on the
+@@ -559,7 +560,8 @@ template <class ELFT> void elf::createSyntheticSections() {
+   add(*in.relaIplt);
+ 
+   if ((config->emachine == EM_386 || config->emachine == EM_X86_64) &&
+-      (config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_IBT)) {
++      (config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_IBT) &&
++      (!(config->andFeatures & GNU_PROPERTY_X86_FEATURE_1_FINEIBT))) {
+     in.ibtPlt = std::make_unique<IBTPltSection>();
+     add(*in.ibtPlt);
+   }
+@@ -1909,6 +1911,7 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
+     Out::preinitArray = findSection(".preinit_array");
+     Out::initArray = findSection(".init_array");
+     Out::finiArray = findSection(".fini_array");
++    Out::fineIBTStub = findSection("fineibt_stub");
+ 
+     // The linker needs to define SECNAME_start, SECNAME_end and SECNAME_stop
+     // symbols for sections, so that the runtime can get the start and end
+-- 
+2.34.1
+

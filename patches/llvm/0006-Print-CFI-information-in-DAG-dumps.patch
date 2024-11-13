@@ -1,0 +1,25 @@
+From 9efc9d43a7439ca88bf43b14ebb693b39629dcd8 Mon Sep 17 00:00:00 2001
+From: "Gabriel F. T. Gomes" <gabriel.gomes@intel.com>
+Date: Wed, 17 Apr 2024 17:55:44 -0700
+Subject: [PATCH 6/9] Print CFI information in DAG dumps
+
+---
+ llvm/lib/CodeGen/SelectionDAG/SelectionDAGDumper.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/llvm/lib/CodeGen/SelectionDAG/SelectionDAGDumper.cpp b/llvm/lib/CodeGen/SelectionDAG/SelectionDAGDumper.cpp
+index 9ebef642e423..c9ba529cd052 100644
+--- a/llvm/lib/CodeGen/SelectionDAG/SelectionDAGDumper.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/SelectionDAGDumper.cpp
+@@ -1101,6 +1101,8 @@ void SDNode::print(raw_ostream &OS, const SelectionDAG *G) const {
+     if (i) OS << ", "; else OS << " ";
+     printOperand(OS, G, getOperand(i));
+   }
++  if (getCFIType())
++    OS << " [CFI=" << getCFIType() << "] ";
+   if (DebugLoc DL = getDebugLoc()) {
+     OS << ", ";
+     DL.print(OS);
+-- 
+2.34.1
+

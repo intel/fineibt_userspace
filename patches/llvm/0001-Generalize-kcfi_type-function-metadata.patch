@@ -1,0 +1,742 @@
+From 37b0b54cb2fb3bf08ce4a6d9da02624761a8a8d6 Mon Sep 17 00:00:00 2001
+From: Koen Koning <koen.koning@intel.com>
+Date: Wed, 26 Jul 2023 03:40:50 -0700
+Subject: [PATCH 1/9] Generalize kcfi_type function metadata.
+
+Instead of including kcfi in its name, rename it to "cfi_type" so it
+makes more sense for other Control Flow Integrity systems to use it.
+---
+ clang/lib/CodeGen/CodeGenFunction.cpp         |  2 +-
+ clang/lib/CodeGen/CodeGenModule.cpp           | 30 +++++++++----------
+ clang/lib/CodeGen/CodeGenModule.h             | 10 +++----
+ clang/test/CodeGen/kcfi-normalize.c           |  6 ++--
+ clang/test/CodeGen/kcfi.c                     | 26 ++++++++--------
+ llvm/docs/LangRef.rst                         | 12 ++++----
+ llvm/include/llvm/IR/FixedMetadataKinds.def   |  2 +-
+ llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp    |  2 +-
+ llvm/lib/CodeGen/MachineFunction.cpp          |  2 +-
+ llvm/lib/IR/Verifier.cpp                      | 16 +++++-----
+ llvm/lib/Target/X86/X86AsmPrinter.cpp         |  2 +-
+ llvm/lib/Transforms/IPO/MergeFunctions.cpp    |  4 +--
+ .../InstCombine/InstCombineCalls.cpp          |  2 +-
+ llvm/lib/Transforms/Utils/ModuleUtils.cpp     |  2 +-
+ llvm/test/CodeGen/AArch64/kcfi-bti.ll         |  4 +--
+ .../AArch64/kcfi-patchable-function-prefix.ll |  4 +--
+ llvm/test/CodeGen/AArch64/kcfi.ll             |  2 +-
+ llvm/test/CodeGen/ARM/kcfi.ll                 |  2 +-
+ llvm/test/CodeGen/RISCV/kcfi-isel-mir.ll      |  2 +-
+ llvm/test/CodeGen/RISCV/kcfi-mir.ll           |  2 +-
+ .../RISCV/kcfi-patchable-function-prefix.ll   |  4 +--
+ llvm/test/CodeGen/RISCV/kcfi.ll               |  2 +-
+ .../X86/kcfi-patchable-function-prefix.ll     |  4 +--
+ llvm/test/CodeGen/X86/kcfi.ll                 |  6 ++--
+ .../AddressSanitizer/kcfi-offset.ll           |  2 +-
+ .../Instrumentation/AddressSanitizer/kcfi.ll  |  4 +--
+ llvm/test/Transforms/GCOVProfiling/kcfi.ll    |  8 ++---
+ .../Verifier/metadata-function-kcfi-type.ll   | 22 +++++++-------
+ 28 files changed, 93 insertions(+), 93 deletions(-)
+
+diff --git a/clang/lib/CodeGen/CodeGenFunction.cpp b/clang/lib/CodeGen/CodeGenFunction.cpp
+index 2673e4a5cee7..d717e85f4400 100644
+--- a/clang/lib/CodeGen/CodeGenFunction.cpp
++++ b/clang/lib/CodeGen/CodeGenFunction.cpp
+@@ -2701,7 +2701,7 @@ void CodeGenFunction::EmitKCFIOperandBundle(
+   const FunctionProtoType *FP =
+       Callee.getAbstractInfo().getCalleeFunctionProtoType();
+   if (FP)
+-    Bundles.emplace_back("kcfi", CGM.CreateKCFITypeId(FP->desugar()));
++    Bundles.emplace_back("kcfi", CGM.CreateCFITypeId(FP->desugar()));
+ }
+ 
+ llvm::Value *CodeGenFunction::FormAArch64ResolverCondition(
+diff --git a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
+index 1280bcd36de9..8cbcfb33c53b 100644
+--- a/clang/lib/CodeGen/CodeGenModule.cpp
++++ b/clang/lib/CodeGen/CodeGenModule.cpp
+@@ -867,7 +867,7 @@ void CodeGenModule::Release() {
+     CodeGenFunction(*this).EmitCfiCheckStub();
+   }
+   if (LangOpts.Sanitize.has(SanitizerKind::KCFI))
+-    finalizeKCFITypes();
++    finalizeCFITypes();
+   emitAtAvailableLinkGuard();
+   if (Context.getTargetInfo().getTriple().isWasm())
+     EmitMainVoidAlias();
+@@ -2099,7 +2099,7 @@ llvm::ConstantInt *CodeGenModule::CreateCrossDsoCfiTypeId(llvm::Metadata *MD) {
+   return llvm::ConstantInt::get(Int64Ty, llvm::MD5Hash(MDS->getString()));
+ }
+ 
+-llvm::ConstantInt *CodeGenModule::CreateKCFITypeId(QualType T) {
++llvm::ConstantInt *CodeGenModule::CreateCFITypeId(QualType T) {
+   if (auto *FnType = T->getAs<FunctionProtoType>())
+     T = getContext().getFunctionType(
+         FnType->getReturnType(), FnType->getParamTypes(),
+@@ -2733,16 +2733,16 @@ void CodeGenModule::CreateFunctionTypeMetadataForIcall(const FunctionDecl *FD,
+       F->addTypeMetadata(0, llvm::ConstantAsMetadata::get(CrossDsoTypeId));
+ }
+ 
+-void CodeGenModule::setKCFIType(const FunctionDecl *FD, llvm::Function *F) {
++void CodeGenModule::setCFIType(const FunctionDecl *FD, llvm::Function *F) {
+   llvm::LLVMContext &Ctx = F->getContext();
+   llvm::MDBuilder MDB(Ctx);
+-  F->setMetadata(llvm::LLVMContext::MD_kcfi_type,
++  F->setMetadata(llvm::LLVMContext::MD_cfi_type,
+                  llvm::MDNode::get(
+-                     Ctx, MDB.createConstant(CreateKCFITypeId(FD->getType()))));
++                     Ctx, MDB.createConstant(CreateCFITypeId(FD->getType()))));
+ }
+ 
+-static bool allowKCFIIdentifier(StringRef Name) {
+-  // KCFI type identifier constants are only necessary for external assembly
++static bool allowCFIIdentifier(StringRef Name) {
++  // CFI type identifier constants are only necessary for external assembly
+   // functions, which means it's safe to skip unusual names. Subset of
+   // MCAsmInfo::isAcceptableChar() and MCAsmInfoXCOFF::isAcceptableChar().
+   return llvm::all_of(Name, [](const char &C) {
+@@ -2750,31 +2750,31 @@ static bool allowKCFIIdentifier(StringRef Name) {
+   });
+ }
+ 
+-void CodeGenModule::finalizeKCFITypes() {
++void CodeGenModule::finalizeCFITypes() {
+   llvm::Module &M = getModule();
+   for (auto &F : M.functions()) {
+-    // Remove KCFI type metadata from non-address-taken local functions.
++    // Remove CFI type metadata from non-address-taken local functions.
+     bool AddressTaken = F.hasAddressTaken();
+     if (!AddressTaken && F.hasLocalLinkage())
+-      F.eraseMetadata(llvm::LLVMContext::MD_kcfi_type);
++      F.eraseMetadata(llvm::LLVMContext::MD_cfi_type);
+ 
+-    // Generate a constant with the expected KCFI type identifier for all
++    // Generate a constant with the expected CFI type identifier for all
+     // address-taken function declarations to support annotating indirectly
+     // called assembly functions.
+     if (!AddressTaken || !F.isDeclaration())
+       continue;
+ 
+     const llvm::ConstantInt *Type;
+-    if (const llvm::MDNode *MD = F.getMetadata(llvm::LLVMContext::MD_kcfi_type))
++    if (const llvm::MDNode *MD = F.getMetadata(llvm::LLVMContext::MD_cfi_type))
+       Type = llvm::mdconst::extract<llvm::ConstantInt>(MD->getOperand(0));
+     else
+       continue;
+ 
+     StringRef Name = F.getName();
+-    if (!allowKCFIIdentifier(Name))
++    if (!allowCFIIdentifier(Name))
+       continue;
+ 
+-    std::string Asm = (".weak __kcfi_typeid_" + Name + "\n.set __kcfi_typeid_" +
++    std::string Asm = (".weak __cfi_typeid_" + Name + "\n.set __cfi_typeid_" +
+                        Name + ", " + Twine(Type->getZExtValue()) + "\n")
+                           .str();
+     M.appendModuleInlineAsm(Asm);
+@@ -2864,7 +2864,7 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
+     CreateFunctionTypeMetadataForIcall(FD, F);
+ 
+   if (LangOpts.Sanitize.has(SanitizerKind::KCFI))
+-    setKCFIType(FD, F);
++    setCFIType(FD, F);
+ 
+   if (getLangOpts().OpenMP && FD->hasAttr<OMPDeclareSimdDeclAttr>())
+     getOpenMPRuntime().emitDeclareSimdFunction(FD, F);
+diff --git a/clang/lib/CodeGen/CodeGenModule.h b/clang/lib/CodeGen/CodeGenModule.h
+index ec34680fd3f7..2171d2fc3fc1 100644
+--- a/clang/lib/CodeGen/CodeGenModule.h
++++ b/clang/lib/CodeGen/CodeGenModule.h
+@@ -1450,8 +1450,8 @@ public:
+   /// Generate a cross-DSO type identifier for MD.
+   llvm::ConstantInt *CreateCrossDsoCfiTypeId(llvm::Metadata *MD);
+ 
+-  /// Generate a KCFI type identifier for T.
+-  llvm::ConstantInt *CreateKCFITypeId(QualType T);
++  /// Generate a CFI type identifier for T.
++  llvm::ConstantInt *CreateCFITypeId(QualType T);
+ 
+   /// Create a metadata identifier for the given type. This may either be an
+   /// MDString (for external identifiers) or a distinct unnamed MDNode (for
+@@ -1472,10 +1472,10 @@ public:
+                                           llvm::Function *F);
+ 
+   /// Set type metadata to the given function.
+-  void setKCFIType(const FunctionDecl *FD, llvm::Function *F);
++  void setCFIType(const FunctionDecl *FD, llvm::Function *F);
+ 
+-  /// Emit KCFI type identifier constants and remove unused identifiers.
+-  void finalizeKCFITypes();
++  /// Emit CFI type identifier constants and remove unused identifiers.
++  void finalizeCFITypes();
+ 
+   /// Whether this function's return type has no side effects, and thus may
+   /// be trivially discarded if it is unused.
+diff --git a/clang/test/CodeGen/kcfi-normalize.c b/clang/test/CodeGen/kcfi-normalize.c
+index 7660c908a7bd..1f24ac3cad6b 100644
+--- a/clang/test/CodeGen/kcfi-normalize.c
++++ b/clang/test/CodeGen/kcfi-normalize.c
+@@ -9,21 +9,21 @@
+ 
+ void foo(void (*fn)(int), int arg) {
+     // CHECK-LABEL: define{{.*}}foo
+-    // CHECK-SAME: {{.*}}!kcfi_type ![[TYPE1:[0-9]+]]
++    // CHECK-SAME: {{.*}}!cfi_type ![[TYPE1:[0-9]+]]
+     // CHECK: call void %0(i32 noundef %1){{.*}}[ "kcfi"(i32 1162514891) ]
+     fn(arg);
+ }
+ 
+ void bar(void (*fn)(int, int), int arg1, int arg2) {
+     // CHECK-LABEL: define{{.*}}bar
+-    // CHECK-SAME: {{.*}}!kcfi_type ![[TYPE2:[0-9]+]]
++    // CHECK-SAME: {{.*}}!cfi_type ![[TYPE2:[0-9]+]]
+     // CHECK: call void %0(i32 noundef %1, i32 noundef %2){{.*}}[ "kcfi"(i32 448046469) ]
+     fn(arg1, arg2);
+ }
+ 
+ void baz(void (*fn)(int, int, int), int arg1, int arg2, int arg3) {
+     // CHECK-LABEL: define{{.*}}baz
+-    // CHECK-SAME: {{.*}}!kcfi_type ![[TYPE3:[0-9]+]]
++    // CHECK-SAME: {{.*}}!cfi_type ![[TYPE3:[0-9]+]]
+     // CHECK: call void %0(i32 noundef %1, i32 noundef %2, i32 noundef %3){{.*}}[ "kcfi"(i32 -2049681433) ]
+     fn(arg1, arg2, arg3);
+ }
+diff --git a/clang/test/CodeGen/kcfi.c b/clang/test/CodeGen/kcfi.c
+index f6b2e4b398aa..7848d1af2d0a 100644
+--- a/clang/test/CodeGen/kcfi.c
++++ b/clang/test/CodeGen/kcfi.c
+@@ -5,17 +5,17 @@
+ #error Missing kcfi?
+ #endif
+ 
+-/// Must emit __kcfi_typeid symbols for address-taken function declarations
+-// CHECK: module asm ".weak __kcfi_typeid_[[F4:[a-zA-Z0-9_]+]]"
+-// CHECK: module asm ".set __kcfi_typeid_[[F4]], [[#%d,HASH:]]"
+-/// Must not __kcfi_typeid symbols for non-address-taken declarations
+-// CHECK-NOT: module asm ".weak __kcfi_typeid_{{f6|_Z2f6v}}"
++/// Must emit __cfi_typeid symbols for address-taken function declarations
++// CHECK: module asm ".weak __cfi_typeid_[[F4:[a-zA-Z0-9_]+]]"
++// CHECK: module asm ".set __cfi_typeid_[[F4]], [[#%d,HASH:]]"
++/// Must not __cfi_typeid symbols for non-address-taken declarations
++// CHECK-NOT: module asm ".weak __cfi_typeid_{{f6|_Z2f6v}}"
+ typedef int (*fn_t)(void);
+ 
+-// CHECK: define dso_local{{.*}} i32 @{{f1|_Z2f1v}}(){{.*}} !kcfi_type ![[#TYPE:]]
++// CHECK: define dso_local{{.*}} i32 @{{f1|_Z2f1v}}(){{.*}} !cfi_type ![[#TYPE:]]
+ int f1(void) { return 0; }
+ 
+-// CHECK: define dso_local{{.*}} i32 @{{f2|_Z2f2v}}(){{.*}} !kcfi_type ![[#TYPE2:]]
++// CHECK: define dso_local{{.*}} i32 @{{f2|_Z2f2v}}(){{.*}} !cfi_type ![[#TYPE2:]]
+ unsigned int f2(void) { return 2; }
+ 
+ // CHECK-LABEL: define dso_local{{.*}} i32 @{{__call|_Z6__callPFivE}}(ptr{{.*}} %f)
+@@ -30,19 +30,19 @@ int call(fn_t f) {
+   return f();
+ }
+ 
+-// CHECK-DAG: define internal{{.*}} i32 @{{f3|_ZL2f3v}}(){{.*}} !kcfi_type ![[#TYPE]]
++// CHECK-DAG: define internal{{.*}} i32 @{{f3|_ZL2f3v}}(){{.*}} !cfi_type ![[#TYPE]]
+ static int f3(void) { return 1; }
+ 
+-// CHECK-DAG: declare !kcfi_type ![[#TYPE]]{{.*}} i32 @[[F4]]()
++// CHECK-DAG: declare !cfi_type ![[#TYPE]]{{.*}} i32 @[[F4]]()
+ extern int f4(void);
+ 
+-/// Must not emit !kcfi_type for non-address-taken local functions
++/// Must not emit !cfi_type for non-address-taken local functions
+ // CHECK: define internal{{.*}} i32 @{{f5|_ZL2f5v}}()
+-// CHECK-NOT: !kcfi_type
++// CHECK-NOT: !cfi_type
+ // CHECK-SAME: {
+ static int f5(void) { return 2; }
+ 
+-// CHECK-DAG: declare !kcfi_type ![[#TYPE]]{{.*}} i32 @{{f6|_Z2f6v}}()
++// CHECK-DAG: declare !cfi_type ![[#TYPE]]{{.*}} i32 @{{f6|_Z2f6v}}()
+ extern int f6(void);
+ 
+ int test(void) {
+@@ -56,7 +56,7 @@ int test(void) {
+ 
+ #ifdef __cplusplus
+ struct A {
+-  // MEMBER-DAG: define{{.*}} void @_ZN1A1fEv(ptr{{.*}} %this){{.*}} !kcfi_type ![[#TYPE3:]]
++  // MEMBER-DAG: define{{.*}} void @_ZN1A1fEv(ptr{{.*}} %this){{.*}} !cfi_type ![[#TYPE3:]]
+   void f() {}
+ };
+ 
+diff --git a/llvm/docs/LangRef.rst b/llvm/docs/LangRef.rst
+index 7a7ddc59ba98..2f9e7b06cb80 100644
+--- a/llvm/docs/LangRef.rst
++++ b/llvm/docs/LangRef.rst
+@@ -2847,7 +2847,7 @@ KCFI Operand Bundles
+ 
+ A ``"kcfi"`` operand bundle on an indirect call indicates that the call will
+ be preceded by a runtime type check, which validates that the call target is
+-prefixed with a :ref:`type identifier<md_kcfi_type>` that matches the operand
++prefixed with a :ref:`type identifier<md_cfi_type>` that matches the operand
+ bundle attribute. For example:
+ 
+ .. code-block:: llvm
+@@ -7614,12 +7614,12 @@ Example:
+     }
+     !0 = !{i32 846595819, ptr @__llvm_rtti_proxy}
+ 
+-.. _md_kcfi_type:
++.. _md_cfi_type:
+ 
+-'``kcfi_type``' Metadata
++'``cfi_type``' Metadata
+ ^^^^^^^^^^^^^^^^^^^^^^^^
+ 
+-The ``kcfi_type`` metadata can be used to attach a type identifier to
++The ``cfi_type`` metadata can be used to attach a type identifier to
+ functions that can be called indirectly. The type data is emitted before the
+ function entry in the assembly. Indirect calls with the :ref:`kcfi operand
+ bundle<ob_kcfi>` will emit a check that compares the type identifier to the
+@@ -7629,12 +7629,12 @@ Example:
+ 
+ .. code-block:: text
+ 
+-    define dso_local i32 @f() !kcfi_type !0 {
++    define dso_local i32 @f() !cfi_type !0 {
+       ret i32 0
+     }
+     !0 = !{i32 12345678}
+ 
+-Clang emits ``kcfi_type`` metadata nodes for address-taken functions with
++Clang emits ``cfi_type`` metadata nodes for address-taken functions with
+ ``-fsanitize=kcfi``.
+ 
+ .. _md_memprof:
+diff --git a/llvm/include/llvm/IR/FixedMetadataKinds.def b/llvm/include/llvm/IR/FixedMetadataKinds.def
+index b375d0f09120..7810c182ab80 100644
+--- a/llvm/include/llvm/IR/FixedMetadataKinds.def
++++ b/llvm/include/llvm/IR/FixedMetadataKinds.def
+@@ -47,7 +47,7 @@ LLVM_FIXED_MD_KIND(MD_func_sanitize, "func_sanitize", 32)
+ LLVM_FIXED_MD_KIND(MD_exclude, "exclude", 33)
+ LLVM_FIXED_MD_KIND(MD_memprof, "memprof", 34)
+ LLVM_FIXED_MD_KIND(MD_callsite, "callsite", 35)
+-LLVM_FIXED_MD_KIND(MD_kcfi_type, "kcfi_type", 36)
++LLVM_FIXED_MD_KIND(MD_cfi_type, "cfi_type", 36)
+ LLVM_FIXED_MD_KIND(MD_pcsections, "pcsections", 37)
+ LLVM_FIXED_MD_KIND(MD_DIAssignID, "DIAssignID", 38)
+ LLVM_FIXED_MD_KIND(MD_coro_outside_frame, "coro.outside.frame", 39)
+diff --git a/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp b/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
+index 0d573562de96..8a35fa69e1f7 100644
+--- a/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
++++ b/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
+@@ -1482,7 +1482,7 @@ void AsmPrinter::emitKCFITrapEntry(const MachineFunction &MF,
+ 
+ void AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+   const Function &F = MF.getFunction();
+-  if (const MDNode *MD = F.getMetadata(LLVMContext::MD_kcfi_type))
++  if (const MDNode *MD = F.getMetadata(LLVMContext::MD_cfi_type))
+     emitGlobalConstant(F.getParent()->getDataLayout(),
+                        mdconst::extract<ConstantInt>(MD->getOperand(0)));
+ }
+diff --git a/llvm/lib/CodeGen/MachineFunction.cpp b/llvm/lib/CodeGen/MachineFunction.cpp
+index 57af571ed9bf..315ff19a9cce 100644
+--- a/llvm/lib/CodeGen/MachineFunction.cpp
++++ b/llvm/lib/CodeGen/MachineFunction.cpp
+@@ -224,7 +224,7 @@ void MachineFunction::init() {
+   // by a least 4 to avoid unaligned access, which is especially important for
+   // -mno-unaligned-access.
+   if (F.hasMetadata(LLVMContext::MD_func_sanitize) ||
+-      F.getMetadata(LLVMContext::MD_kcfi_type))
++      F.getMetadata(LLVMContext::MD_cfi_type))
+     Alignment = std::max(Alignment, Align(4));
+ 
+   if (AlignAllFunctions)
+diff --git a/llvm/lib/IR/Verifier.cpp b/llvm/lib/IR/Verifier.cpp
+index 91cf91fbc788..782ecaa0c6b0 100644
+--- a/llvm/lib/IR/Verifier.cpp
++++ b/llvm/lib/IR/Verifier.cpp
+@@ -2310,19 +2310,19 @@ void Verifier::verifyFunctionMetadata(
+             MD);
+       Check(isa<ConstantAsMetadata>(MD->getOperand(1)),
+             "expected integer argument to function_entry_count", MD);
+-    } else if (Pair.first == LLVMContext::MD_kcfi_type) {
++    } else if (Pair.first == LLVMContext::MD_cfi_type) {
+       MDNode *MD = Pair.second;
+       Check(MD->getNumOperands() == 1,
+-            "!kcfi_type must have exactly one operand", MD);
+-      Check(MD->getOperand(0) != nullptr, "!kcfi_type operand must not be null",
++            "!cfi_type must have exactly one operand", MD);
++      Check(MD->getOperand(0) != nullptr, "!cfi_type operand must not be null",
+             MD);
+       Check(isa<ConstantAsMetadata>(MD->getOperand(0)),
+-            "expected a constant operand for !kcfi_type", MD);
++            "expected a constant operand for !cfi_type", MD);
+       Constant *C = cast<ConstantAsMetadata>(MD->getOperand(0))->getValue();
+       Check(isa<ConstantInt>(C) && isa<IntegerType>(C->getType()),
+-            "expected a constant integer operand for !kcfi_type", MD);
++            "expected a constant integer operand for !cfi_type", MD);
+       Check(cast<ConstantInt>(C)->getBitWidth() == 32,
+-            "expected a 32-bit integer constant operand for !kcfi_type", MD);
++            "expected a 32-bit integer constant operand for !cfi_type", MD);
+     }
+   }
+ }
+@@ -2826,10 +2826,10 @@ void Verifier::visitFunction(const Function &F) {
+         Check(NumProfAttachments == 1,
+               "function must have a single !prof attachment", &F, I.second);
+         break;
+-      case LLVMContext::MD_kcfi_type:
++      case LLVMContext::MD_cfi_type:
+         ++NumKCFIAttachments;
+         Check(NumKCFIAttachments == 1,
+-              "function must have a single !kcfi_type attachment", &F,
++              "function must have a single !cfi_type attachment", &F,
+               I.second);
+         break;
+       }
+diff --git a/llvm/lib/Target/X86/X86AsmPrinter.cpp b/llvm/lib/Target/X86/X86AsmPrinter.cpp
+index 87ec8aa23080..f07be8560d7d 100644
+--- a/llvm/lib/Target/X86/X86AsmPrinter.cpp
++++ b/llvm/lib/Target/X86/X86AsmPrinter.cpp
+@@ -158,7 +158,7 @@ void X86AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+     return;
+ 
+   ConstantInt *Type = nullptr;
+-  if (const MDNode *MD = F.getMetadata(LLVMContext::MD_kcfi_type))
++  if (const MDNode *MD = F.getMetadata(LLVMContext::MD_cfi_type))
+     Type = mdconst::extract<ConstantInt>(MD->getOperand(0));
+ 
+   // If we don't have a type to emit, just emit padding if needed to maintain
+diff --git a/llvm/lib/Transforms/IPO/MergeFunctions.cpp b/llvm/lib/Transforms/IPO/MergeFunctions.cpp
+index c8c011d94e4a..7fd9a2536ecb 100644
+--- a/llvm/lib/Transforms/IPO/MergeFunctions.cpp
++++ b/llvm/lib/Transforms/IPO/MergeFunctions.cpp
+@@ -749,7 +749,7 @@ void MergeFunctions::writeThunk(Function *F, Function *G) {
+     NewG->takeName(G);
+     // Ensure CFI type metadata is propagated to the new function.
+     copyMetadataIfPresent(G, NewG, "type");
+-    copyMetadataIfPresent(G, NewG, "kcfi_type");
++    copyMetadataIfPresent(G, NewG, "cfi_type");
+     removeUsers(G);
+     G->replaceAllUsesWith(NewG);
+     G->eraseFromParent();
+@@ -827,7 +827,7 @@ void MergeFunctions::mergeTwoFunctions(Function *F, Function *G) {
+     NewF->takeName(F);
+     // Ensure CFI type metadata is propagated to the new function.
+     copyMetadataIfPresent(F, NewF, "type");
+-    copyMetadataIfPresent(F, NewF, "kcfi_type");
++    copyMetadataIfPresent(F, NewF, "cfi_type");
+     removeUsers(F);
+     F->replaceAllUsesWith(NewF);
+ 
+diff --git a/llvm/lib/Transforms/InstCombine/InstCombineCalls.cpp b/llvm/lib/Transforms/InstCombine/InstCombineCalls.cpp
+index a647be2d26c7..d9bcd386e52b 100644
+--- a/llvm/lib/Transforms/InstCombine/InstCombineCalls.cpp
++++ b/llvm/lib/Transforms/InstCombine/InstCombineCalls.cpp
+@@ -3718,7 +3718,7 @@ Instruction *InstCombinerImpl::visitCallBase(CallBase &Call) {
+         ConstantInt *FunctionType = nullptr;
+         ConstantInt *ExpectedType = cast<ConstantInt>(Bundle->Inputs[0]);
+ 
+-        if (MDNode *MD = CalleeF->getMetadata(LLVMContext::MD_kcfi_type))
++        if (MDNode *MD = CalleeF->getMetadata(LLVMContext::MD_cfi_type))
+           FunctionType = mdconst::extract<ConstantInt>(MD->getOperand(0));
+ 
+         if (FunctionType &&
+diff --git a/llvm/lib/Transforms/Utils/ModuleUtils.cpp b/llvm/lib/Transforms/Utils/ModuleUtils.cpp
+index 209a6a34a3c9..04399830f1ef 100644
+--- a/llvm/lib/Transforms/Utils/ModuleUtils.cpp
++++ b/llvm/lib/Transforms/Utils/ModuleUtils.cpp
+@@ -161,7 +161,7 @@ void llvm::setKCFIType(Module &M, Function &F, StringRef MangledType) {
+   LLVMContext &Ctx = M.getContext();
+   MDBuilder MDB(Ctx);
+   F.setMetadata(
+-      LLVMContext::MD_kcfi_type,
++      LLVMContext::MD_cfi_type,
+       MDNode::get(Ctx, MDB.createConstant(ConstantInt::get(
+                            Type::getInt32Ty(Ctx),
+                            static_cast<uint32_t>(xxHash64(MangledType))))));
+diff --git a/llvm/test/CodeGen/AArch64/kcfi-bti.ll b/llvm/test/CodeGen/AArch64/kcfi-bti.ll
+index 12cde4371e15..a896602d1ef0 100644
+--- a/llvm/test/CodeGen/AArch64/kcfi-bti.ll
++++ b/llvm/test/CodeGen/AArch64/kcfi-bti.ll
+@@ -3,7 +3,7 @@
+ ; RUN: llc -mtriple=aarch64-- -verify-machineinstrs -stop-after=kcfi < %s | FileCheck %s --check-prefixes=MIR,KCFI
+ 
+ ; ASM:       .word 12345678
+-define void @f1(ptr noundef %x) !kcfi_type !2 {
++define void @f1(ptr noundef %x) !cfi_type !2 {
+ ; ASM-LABEL: f1:
+ ; ASM:       // %bb.0:
+ ; ASM:         ldur w16, [x0, #-4]
+@@ -30,7 +30,7 @@ define void @f1(ptr noundef %x) !kcfi_type !2 {
+ }
+ 
+ ; ASM:       .word 12345678
+-define void @f2(ptr noundef %x) !kcfi_type !2 {
++define void @f2(ptr noundef %x) !cfi_type !2 {
+ ; ASM-LABEL: f2:
+ ; ASM:       // %bb.0:
+ ; ASM:         ldur w16, [x0, #-4]
+diff --git a/llvm/test/CodeGen/AArch64/kcfi-patchable-function-prefix.ll b/llvm/test/CodeGen/AArch64/kcfi-patchable-function-prefix.ll
+index e5cf0d620047..6f1043683288 100644
+--- a/llvm/test/CodeGen/AArch64/kcfi-patchable-function-prefix.ll
++++ b/llvm/test/CodeGen/AArch64/kcfi-patchable-function-prefix.ll
+@@ -4,7 +4,7 @@
+ ; CHECK-NOT:        nop
+ ; CHECK:          .word   12345678
+ ; CHECK-LABEL:    f1:
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+ ; CHECK:            ldur    w16, [x0, #-4]
+   call void %x() [ "kcfi"(i32 12345678) ]
+   ret void
+@@ -24,7 +24,7 @@ define void @f2(ptr noundef %x) {
+ ; CHECK:          .word   12345678
+ ; CHECK-COUNT-11:   nop
+ ; CHECK-LABEL:    f3:
+-define void @f3(ptr noundef %x) #0 !kcfi_type !1 {
++define void @f3(ptr noundef %x) #0 !cfi_type !1 {
+ ; CHECK:            ldur    w16, [x0, #-48]
+   call void %x() [ "kcfi"(i32 12345678) ]
+   ret void
+diff --git a/llvm/test/CodeGen/AArch64/kcfi.ll b/llvm/test/CodeGen/AArch64/kcfi.ll
+index 7c824c19ee69..62ac11c884c2 100644
+--- a/llvm/test/CodeGen/AArch64/kcfi.ll
++++ b/llvm/test/CodeGen/AArch64/kcfi.ll
+@@ -11,7 +11,7 @@
+ ; RUN: llc -mtriple=aarch64-- -verify-machineinstrs -mattr=harden-sls-blr -stop-after=kcfi < %s | FileCheck %s --check-prefixes=MIR,KCFI-SLS
+ 
+ ; ASM:       .word 12345678
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+ ; ASM-LABEL: f1:
+ ; ASM:       // %bb.0:
+ ; ASM:         ldur w16, [x0, #-4]
+diff --git a/llvm/test/CodeGen/ARM/kcfi.ll b/llvm/test/CodeGen/ARM/kcfi.ll
+index 9e16468c9347..6897bf968917 100644
+--- a/llvm/test/CodeGen/ARM/kcfi.ll
++++ b/llvm/test/CodeGen/ARM/kcfi.ll
+@@ -19,7 +19,7 @@ define dso_local void @nosan() nounwind {
+ ; CHECK-NEXT:  .code 16
+ ; CHECK-NEXT:  .thumb_func
+ ; CHECK-NEXT:  f1:
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+   ret void
+ }
+ 
+diff --git a/llvm/test/CodeGen/RISCV/kcfi-isel-mir.ll b/llvm/test/CodeGen/RISCV/kcfi-isel-mir.ll
+index 4c47b5f741fa..0bc4085a7da2 100644
+--- a/llvm/test/CodeGen/RISCV/kcfi-isel-mir.ll
++++ b/llvm/test/CodeGen/RISCV/kcfi-isel-mir.ll
+@@ -1,6 +1,6 @@
+ ; NOTE: Assertions have been autogenerated by utils/update_mir_test_checks.py UTC_ARGS: --version 2
+ ; RUN: llc -mtriple=riscv64 -stop-after=finalize-isel -verify-machineinstrs -o - %s | FileCheck %s
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+   ; CHECK-LABEL: name: f1
+   ; CHECK: bb.0 (%ir-block.0):
+   ; CHECK-NEXT:   liveins: $x10
+diff --git a/llvm/test/CodeGen/RISCV/kcfi-mir.ll b/llvm/test/CodeGen/RISCV/kcfi-mir.ll
+index 9d8475e2171e..9a1a5d6df4b7 100644
+--- a/llvm/test/CodeGen/RISCV/kcfi-mir.ll
++++ b/llvm/test/CodeGen/RISCV/kcfi-mir.ll
+@@ -1,7 +1,7 @@
+ ; NOTE: Assertions have been autogenerated by utils/update_mir_test_checks.py UTC_ARGS: --version 2
+ ; RUN: llc -mtriple=riscv64 -stop-after=kcfi -verify-machineinstrs -o - %s | FileCheck %s
+ 
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+   ; CHECK-LABEL: name: f1
+   ; CHECK: bb.0 (%ir-block.0):
+   ; CHECK-NEXT:   liveins: $x10, $x1
+diff --git a/llvm/test/CodeGen/RISCV/kcfi-patchable-function-prefix.ll b/llvm/test/CodeGen/RISCV/kcfi-patchable-function-prefix.ll
+index 8e13bb769ea5..c27ca93ec796 100644
+--- a/llvm/test/CodeGen/RISCV/kcfi-patchable-function-prefix.ll
++++ b/llvm/test/CodeGen/RISCV/kcfi-patchable-function-prefix.ll
+@@ -8,7 +8,7 @@
+ ; CHECK-NOT:        nop
+ ; CHECK:          .word   12345678
+ ; CHECK-LABEL:    f1:
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+ ; CHECK:            lw      t1, -4(a0)
+   call void %x() [ "kcfi"(i32 12345678) ]
+   ret void
+@@ -31,7 +31,7 @@ define void @f2(ptr noundef %x) {
+ ; CHECK:          .word   12345678
+ ; CHECK-COUNT-11:   nop
+ ; CHECK-LABEL:    f3:
+-define void @f3(ptr noundef %x) #0 !kcfi_type !1 {
++define void @f3(ptr noundef %x) #0 !cfi_type !1 {
+ ; NOC:              lw      t1, -48(a0)
+ ; C:                lw      t1, -26(a0)
+   call void %x() [ "kcfi"(i32 12345678) ]
+diff --git a/llvm/test/CodeGen/RISCV/kcfi.ll b/llvm/test/CodeGen/RISCV/kcfi.ll
+index 52be56fcbf55..cd44ada1c405 100644
+--- a/llvm/test/CodeGen/RISCV/kcfi.ll
++++ b/llvm/test/CodeGen/RISCV/kcfi.ll
+@@ -4,7 +4,7 @@
+ ; RUN:      | FileCheck %s --check-prefixes=CHECK,RV64
+ 
+ ; CHECK:       .word 12345678
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+ ; CHECK-LABEL: f1:
+ ; CHECK:       # %bb.0:
+ ; CHECK:         lw t1, -4(a0)
+diff --git a/llvm/test/CodeGen/X86/kcfi-patchable-function-prefix.ll b/llvm/test/CodeGen/X86/kcfi-patchable-function-prefix.ll
+index e5d541f8ed9d..456930771628 100644
+--- a/llvm/test/CodeGen/X86/kcfi-patchable-function-prefix.ll
++++ b/llvm/test/CodeGen/X86/kcfi-patchable-function-prefix.ll
+@@ -7,7 +7,7 @@
+ ; CHECK-LABEL:    .Lcfi_func_end0:
+ ; CHECK-NEXT:     .size   __cfi_f1, .Lcfi_func_end0-__cfi_f1
+ ; CHECK-LABEL:    f1:
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+ ; CHECK:            addl -4(%r{{..}}), %r10d
+   call void %x() [ "kcfi"(i32 12345678) ]
+   ret void
+@@ -29,7 +29,7 @@ define void @f2(ptr noundef %x) {
+ ; CHECK-NEXT:       movl $12345678, %eax
+ ; CHECK-COUNT-11:   nop
+ ; CHECK-LABEL:    f3:
+-define void @f3(ptr noundef %x) #0 !kcfi_type !1 {
++define void @f3(ptr noundef %x) #0 !cfi_type !1 {
+ ; CHECK:            addl -15(%r{{..}}), %r10d
+   call void %x() [ "kcfi"(i32 12345678) ]
+   ret void
+diff --git a/llvm/test/CodeGen/X86/kcfi.ll b/llvm/test/CodeGen/X86/kcfi.ll
+index 566a88b76c4f..0658e070d31e 100644
+--- a/llvm/test/CodeGen/X86/kcfi.ll
++++ b/llvm/test/CodeGen/X86/kcfi.ll
+@@ -19,7 +19,7 @@
+ ; ASM-NEXT:    movl $12345678, %eax
+ ; ASM-LABEL: .Lcfi_func_end0:
+ ; ASM-NEXT:  .size   __cfi_f1, .Lcfi_func_end0-__cfi_f1
+-define void @f1(ptr noundef %x) !kcfi_type !1 {
++define void @f1(ptr noundef %x) !cfi_type !1 {
+ ; ASM-LABEL: f1:
+ ; ASM:       # %bb.0:
+ ; ASM:         movl $4282621618, %r10d # imm = 0xFF439EB2
+@@ -91,7 +91,7 @@ define void @f4(ptr noundef %x) #0 {
+ ;; Ensure we emit Value + 1 for unwanted values (e.g. endbr64 == 4196274163).
+ ; ASM-LABEL: __cfi_f5:
+ ; ASM: movl $4196274164, %eax # imm = 0xFA1E0FF4
+-define void @f5(ptr noundef %x) !kcfi_type !2 {
++define void @f5(ptr noundef %x) !cfi_type !2 {
+ ; ASM-LABEL: f5:
+ ; ASM: movl $98693132, %r10d # imm = 0x5E1F00C
+   tail call void %x() [ "kcfi"(i32 4196274163) ]
+@@ -101,7 +101,7 @@ define void @f5(ptr noundef %x) !kcfi_type !2 {
+ ;; Ensure we emit Value + 1 for unwanted values (e.g. -endbr64 == 98693133).
+ ; ASM-LABEL: __cfi_f6:
+ ; ASM: movl $98693134, %eax # imm = 0x5E1F00E
+-define void @f6(ptr noundef %x) !kcfi_type !3 {
++define void @f6(ptr noundef %x) !cfi_type !3 {
+ ; ASM-LABEL: f6:
+ ; ASM: movl $4196274162, %r10d # imm = 0xFA1E0FF2
+   tail call void %x() [ "kcfi"(i32 98693133) ]
+diff --git a/llvm/test/Instrumentation/AddressSanitizer/kcfi-offset.ll b/llvm/test/Instrumentation/AddressSanitizer/kcfi-offset.ll
+index b5d103c07399..0c9b44f3a8a4 100644
+--- a/llvm/test/Instrumentation/AddressSanitizer/kcfi-offset.ll
++++ b/llvm/test/Instrumentation/AddressSanitizer/kcfi-offset.ll
+@@ -6,7 +6,7 @@
+ 
+ ; CHECK: define internal void @asan.module_ctor()
+ ; CHECK-SAME: #[[#ATTR:]]
+-; CHECK-SAME: !kcfi_type
++; CHECK-SAME: !cfi_type
+ 
+ ; CHECK: attributes #[[#ATTR]] = { {{.*}} "patchable-function-prefix"="3" }
+ 
+diff --git a/llvm/test/Instrumentation/AddressSanitizer/kcfi.ll b/llvm/test/Instrumentation/AddressSanitizer/kcfi.ll
+index d263cbd73904..bd298cb16ca6 100644
+--- a/llvm/test/Instrumentation/AddressSanitizer/kcfi.ll
++++ b/llvm/test/Instrumentation/AddressSanitizer/kcfi.ll
+@@ -1,11 +1,11 @@
+-;; Test that we emit kcfi_type metadata for asan.module_ctor with KCFI.
++;; Test that we emit cfi_type metadata for asan.module_ctor with KCFI.
+ 
+ ; RUN: opt < %s -passes=asan -S | FileCheck %s
+ 
+ ; CHECK: @llvm.global_ctors = {{.*}}{ i32 1, ptr @asan.module_ctor, ptr @asan.module_ctor }
+ 
+ ; CHECK: define internal void @asan.module_ctor()
+-; CHECK-SAME: !kcfi_type
++; CHECK-SAME: !cfi_type
+ 
+ !llvm.module.flags = !{!0}
+ !0 = !{i32 4, !"kcfi", i32 1}
+diff --git a/llvm/test/Transforms/GCOVProfiling/kcfi.ll b/llvm/test/Transforms/GCOVProfiling/kcfi.ll
+index b25f40f05d5b..de7734d1bbc3 100644
+--- a/llvm/test/Transforms/GCOVProfiling/kcfi.ll
++++ b/llvm/test/Transforms/GCOVProfiling/kcfi.ll
+@@ -1,4 +1,4 @@
+-;; Ensure __llvm_gcov_(writeout|reset|init) have !kcfi_type with KCFI.
++;; Ensure __llvm_gcov_(writeout|reset|init) have !cfi_type with KCFI.
+ ; RUN: mkdir -p %t && cd %t
+ ; RUN: opt < %s -S -passes=insert-gcov-profiling | FileCheck %s
+ 
+@@ -24,8 +24,8 @@ entry:
+ !9 = !{i32 4, !"kcfi", i32 1}
+ 
+ ; CHECK: define internal void @__llvm_gcov_writeout()
+-; CHECK-SAME: !kcfi_type
++; CHECK-SAME: !cfi_type
+ ; CHECK: define internal void @__llvm_gcov_reset()
+-; CHECK-SAME: !kcfi_type
++; CHECK-SAME: !cfi_type
+ ; CHECK: define internal void @__llvm_gcov_init()
+-; CHECK-SAME: !kcfi_type
++; CHECK-SAME: !cfi_type
+diff --git a/llvm/test/Verifier/metadata-function-kcfi-type.ll b/llvm/test/Verifier/metadata-function-kcfi-type.ll
+index 93bac98e1193..5a521e9c8114 100644
+--- a/llvm/test/Verifier/metadata-function-kcfi-type.ll
++++ b/llvm/test/Verifier/metadata-function-kcfi-type.ll
+@@ -4,36 +4,36 @@ define void @a() {
+   unreachable
+ }
+ 
+-define void @b() !kcfi_type !0 {
++define void @b() !cfi_type !0 {
+   unreachable
+ }
+ 
+-; CHECK: function must have a single !kcfi_type attachment
+-define void @f0() !kcfi_type !0 !kcfi_type !0 {
++; CHECK: function must have a single !cfi_type attachment
++define void @f0() !cfi_type !0 !cfi_type !0 {
+   unreachable
+ }
+ !0 = !{i32 10}
+ 
+-; CHECK: !kcfi_type must have exactly one operand
+-define void @f1() !kcfi_type !1 {
++; CHECK: !cfi_type must have exactly one operand
++define void @f1() !cfi_type !1 {
+   unreachable
+ }
+ !1 = !{!"string", i32 0}
+ 
+-; CHECK: expected a constant operand for !kcfi_type
+-define void @f2() !kcfi_type !2 {
++; CHECK: expected a constant operand for !cfi_type
++define void @f2() !cfi_type !2 {
+   unreachable
+ }
+ !2 = !{!"string"}
+ 
+-; CHECK: expected a constant integer operand for !kcfi_type
+-define void @f3() !kcfi_type !3 {
++; CHECK: expected a constant integer operand for !cfi_type
++define void @f3() !cfi_type !3 {
+   unreachable
+ }
+ !3 = !{ptr @f3}
+ 
+-; CHECK: expected a 32-bit integer constant operand for !kcfi_type
+-define void @f4() !kcfi_type !4 {
++; CHECK: expected a 32-bit integer constant operand for !cfi_type
++define void @f4() !cfi_type !4 {
+   unreachable
+ }
+ !4 = !{i64 10}
+-- 
+2.34.1
+
